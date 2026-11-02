@@ -55,15 +55,18 @@ export const UserProfileSwitcher: React.FC<UserProfileSwitcherProps> = ({
         </div>
         <div className="text-left hidden sm:block">
           <div className="flex items-center gap-1.5">
-            <span className="text-xs font-semibold text-slate-900 dark:text-slate-100 truncate max-w-[140px]">
+            <span className="text-xs font-semibold text-slate-900 dark:text-slate-100 truncate max-w-[130px]">
               {currentUser.displayName}
+            </span>
+            <span className="text-[10px] font-mono font-bold px-1 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+              #{currentUser.serviceNumber}
             </span>
             <span className={`text-[10px] font-medium px-1.5 py-0.2 rounded ${getRoleBadgeStyle(currentUser.role)}`}>
               {currentUser.role.toUpperCase()}
             </span>
           </div>
-          <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate max-w-[170px]">
-            {currentUser.departmentName.split('&')[0]} · {currentUser.clearanceLevel}
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate max-w-[200px]">
+            {currentUser.departmentName.split('&')[0]} · Luput: <span className="font-mono">{currentUser.expiryDate}</span>
           </p>
         </div>
         <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
@@ -72,21 +75,27 @@ export const UserProfileSwitcher: React.FC<UserProfileSwitcherProps> = ({
       {isOpen && (
         <>
           <div className="fixed inset-0 z-30" onClick={() => setIsOpen(false)} />
-          <div className="absolute right-0 mt-2 w-80 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl z-40 p-3 space-y-3">
+          <div className="absolute right-0 mt-2 w-84 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl z-40 p-3 space-y-3">
             <div className="border-b border-slate-100 dark:border-slate-800 pb-2">
-              <p className="text-xs font-semibold text-slate-900 dark:text-slate-100">Profil & Sesi Aktif</p>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                Tukar profil pengesahan untuk menguji peranan dan keizinan dokumen.
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold text-slate-900 dark:text-slate-100">Profil & Sesi Aktif</p>
+                <span className="text-[10px] font-mono font-semibold px-1.5 py-0.5 bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 rounded border border-blue-200 dark:border-blue-900">
+                  No. Servis: {currentUser.serviceNumber}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                Akaun sah sehingga <span className="font-mono text-slate-700 dark:text-slate-300 font-medium">{currentUser.expiryDate}</span> ({currentUser.unitName}).
               </p>
             </div>
 
             {/* Persona Switcher List */}
             <div className="space-y-1.5">
               <p className="text-[10px] font-semibold tracking-wider uppercase text-slate-400">
-                Simulasi Peranan Anggota
+                Tukar Anggota Bertugas
               </p>
               {availableUsers.map((user) => {
                 const isSelected = user.uid === currentUser.uid;
+                const isExpired = new Date(user.expiryDate) < new Date();
                 return (
                   <button
                     key={user.uid}
@@ -105,16 +114,21 @@ export const UserProfileSwitcher: React.FC<UserProfileSwitcherProps> = ({
                         src={user.avatarUrl}
                         alt={user.displayName}
                         referrerPolicy="no-referrer"
-                        className="w-7 h-7 rounded-md object-cover"
+                        className="w-7 h-7 rounded-md object-cover shrink-0"
                       />
-                      <div>
-                        <p className="text-xs font-medium leading-none mb-0.5">{user.displayName}</p>
-                        <p className="text-[10px] text-slate-500">
-                          {user.role.toUpperCase()} · Tapisan: {user.clearanceLevel}
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-xs font-medium leading-none truncate">{user.displayName}</p>
+                          <span className="text-[9px] font-mono font-semibold px-1 py-0.2 bg-slate-200/70 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded">
+                            {user.serviceNumber}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-slate-500 mt-0.5 truncate">
+                          {user.role.toUpperCase()} · {user.unitName} · <span className={isExpired ? 'text-rose-500 font-semibold' : ''}>Luput: {user.expiryDate}</span>
                         </p>
                       </div>
                     </div>
-                    {isSelected && <Check className="w-3.5 h-3.5 text-slate-900 dark:text-white" />}
+                    {isSelected && <Check className="w-3.5 h-3.5 text-slate-900 dark:text-white shrink-0 ml-1" />}
                   </button>
                 );
               })}

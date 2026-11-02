@@ -13,6 +13,9 @@ import {
   DocumentComment,
   UserRole,
   ClearanceLevel,
+  CustomCategory,
+  PaperStatus,
+  DocumentWorkflowStep,
 } from './types/dms';
 import {
   INITIAL_DEPARTMENTS,
@@ -20,6 +23,7 @@ import {
   INITIAL_USERS,
   INITIAL_ACTIVITY_LOGS,
   INITIAL_NOTIFICATIONS,
+  INITIAL_CATEGORIES,
 } from './data/initialData';
 import { TopBar } from './components/TopBar';
 import { DocumentList } from './components/DocumentList';
@@ -28,6 +32,8 @@ import { DocumentEditorModal } from './components/DocumentEditorModal';
 import { AnalyticsDashboard } from './components/AnalyticsDashboard';
 import { OrganizationModule } from './components/OrganizationModule';
 import { AuditLogView } from './components/AuditLogView';
+import { UserManagerModule } from './components/UserManagerModule';
+import { CategoryManagerModule } from './components/CategoryManagerModule';
 import { NotificationCenterModal } from './components/NotificationCenterModal';
 import { UserProfileSwitcher } from './components/UserProfileSwitcher';
 import { ToastContainer, ToastMessage } from './components/Toast';
@@ -58,7 +64,7 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { RefreshCw } from 'lucide-react';
 
 export default function App() {
-  const [currentTab, setCurrentTab] = useState<'documents' | 'analytics' | 'organization' | 'audit'>('documents');
+  const [currentTab, setCurrentTab] = useState<'documents' | 'categories' | 'users' | 'organization' | 'analytics'>('documents');
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
 
   // Core DMS State
@@ -75,6 +81,11 @@ export default function App() {
   const [users, setUsers] = useState<UserProfile[]>(() => {
     const saved = localStorage.getItem('arkadms_users');
     return saved ? JSON.parse(saved) : INITIAL_USERS;
+  });
+
+  const [categories, setCategories] = useState<CustomCategory[]>(() => {
+    const saved = localStorage.getItem('arkadms_categories');
+    return saved ? JSON.parse(saved) : INITIAL_CATEGORIES;
   });
 
   const [currentUser, setCurrentUser] = useState<UserProfile>(users[0]);
@@ -146,6 +157,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('arkadms_users', JSON.stringify(users));
   }, [users]);
+
+  useEffect(() => {
+    localStorage.setItem('arkadms_categories', JSON.stringify(categories));
+  }, [categories]);
 
   useEffect(() => {
     localStorage.setItem('arkadms_logs', JSON.stringify(activityLogs));
@@ -318,17 +333,30 @@ export default function App() {
           editingDoc.authorEmail || 'faridah.mansor@arkadms.gov.my',
           editingDoc.authorName,
           `[KEMASKINI DOKUMEN] ${editingDoc.title}`,
-          `Dokumen "${editingDoc.title}" telah dikemaskini oleh ${currentUser.displayName} pada ${new Date().toLocaleString('ms-MY')}. Sila semak di papan pemuka ArkaDMS.`,
+          `Dokumen "${editingDoc.title}" telah dikemaskini oleh ${currentUser.displayName} (#${currentUser.serviceNumber}) pada ${new Date().toLocaleString('ms-MY')}. Sila semak di papan pemuka ArkaDMS.`,
           editingDoc.isConfidential ? 'urgent' : 'high',
           editingDoc.id
         );
       }
     } else {
       const newId = `doc_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      const docDate = docData.documentDate || new Date().toISOString().split('T')[0];
+      const initialPaperStatus = docData.paperStatus || 'Disediakan';
+
+      const initialWorkflowStep: DocumentWorkflowStep = {
+        id: `step_init_${Date.now()}`,
+        stage: 'Penyediaan Draf Awal',
+        handledBy: `${currentUser.displayName} (#${currentUser.serviceNumber})`,
+        departmentName: `${currentUser.unitName}, ${currentUser.departmentName}`,
+        date: docDate,
+        status: 'selesai',
+        notes: `Dokumen / paper telah didaftarkan ke dalam sistem ArkaDMS oleh ${currentUser.displayName} (#${currentUser.serviceNumber}).`,
+      };
+
       const newDoc: DmsDocument = {
         id: newId,
         title: docData.title || 'Dokumen Baharu',
-        category: docData.category || 'Dasar & Polisi',
+        category: docData.category || (categories[0]?.code || 'SOP'),
         taskCategory: docData.taskCategory || 'Tugasan Projek',
         tags: docData.tags || [],
         content: docData.content || '',
@@ -344,6 +372,16 @@ export default function App() {
         iv: docData.iv,
         salt: docData.salt,
         currentVersion: '1.0',
+        documentDate: docDate,
+        authorId: currentUser.uid,
+        authorName: currentUser.displayName,
+        authorEmail: currentUser.email,
+        creatorServiceNumber: currentUser.serviceNumber,
+        lastModifiedBy: currentUser.displayName,
+        paperStatus: initialPaperStatus,
+        workflowChronology: docData.workflowChronology && docData.workflowChronology.length > 0
+          ? docData.workflowChronology
+          : [initialWorkflowStep],
         revisions: [
           {
             id: `rev_${Date.now()}`,
@@ -355,10 +393,6 @@ export default function App() {
             contentSnapshot: docData.content || '',
           },
         ],
-        authorId: currentUser.uid,
-        authorName: currentUser.displayName,
-        authorEmail: currentUser.email,
-        lastModifiedBy: currentUser.displayName,
         attachmentUrl: docData.attachmentUrl,
         attachmentName: docData.attachmentName,
         attachmentType: docData.attachmentType,
@@ -374,7 +408,7 @@ export default function App() {
         'CIPTA_DOKUMEN',
         newDoc.id,
         newDoc.title,
-        `Mendaftarkan dokumen baharu (${newDoc.isConfidential ? 'SULIT' : 'BIASA'}).`,
+        `Mendaftarkan dokumen baharu (${newDoc.isConfidential ? 'SULIT' : 'BIASA'}) oleh #${currentUser.serviceNumber}.`,
         newDoc.isConfidential
       );
 
@@ -383,12 +417,168 @@ export default function App() {
           'faridah.mansor@arkadms.gov.my',
           'Pegawai Pengarah Keselamatan',
           `[DOKUMEN BAHARU] ${newDoc.title}`,
-          `Dokumen baharu bertajuk "${newDoc.title}" telah didaftarkan ke dalam sistem oleh ${currentUser.displayName}. Klasifikasi: ${newDoc.clearanceRequired}.`,
+          `Dokumen baharu bertajuk "${newDoc.title}" telah didaftarkan ke dalam sistem oleh ${currentUser.displayName} (#${currentUser.serviceNumber}). Klasifikasi: ${newDoc.clearanceRequired}.`,
           newDoc.isConfidential ? 'high' : 'normal',
           newDoc.id
         );
       }
     }
+  };
+
+  // Workflow Chronology & Status Paper Handler
+  const handleUpdatePaperStatus = (
+    docId: string,
+    newStatus: PaperStatus,
+    newStep?: Omit<DocumentWorkflowStep, 'id'>
+  ) => {
+    const targetDoc = documents.find((d) => d.id === docId);
+    if (!targetDoc) return;
+
+    const stepToAdd: DocumentWorkflowStep | undefined = newStep
+      ? {
+          ...newStep,
+          id: `step_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        }
+      : undefined;
+
+    const updatedList = documents.map((d) => {
+      if (d.id === docId) {
+        return {
+          ...d,
+          paperStatus: newStatus,
+          updatedAt: new Date().toISOString(),
+          lastModifiedBy: currentUser.displayName,
+          workflowChronology: stepToAdd
+            ? [...(d.workflowChronology || []), stepToAdd]
+            : d.workflowChronology || [],
+        };
+      }
+      return d;
+    });
+
+    setDocuments(updatedList);
+    logActivity(
+      'KEMASKINI_STATUS_PAPER',
+      docId,
+      targetDoc.title,
+      `Mengemas kini status peredaran paper kepada "${newStatus}".`,
+      targetDoc.isConfidential
+    );
+
+    triggerAutomatedEmail(
+      targetDoc.authorEmail || 'faridah.mansor@arkadms.gov.my',
+      targetDoc.authorName,
+      `[KRONOLOGI PAPER] Status Dikemaskini: ${targetDoc.title}`,
+      `Status paper "${targetDoc.title}" kini bertukar kepada "${newStatus}" oleh ${currentUser.displayName} (#${currentUser.serviceNumber}).\nNota Pegawai: ${newStep?.notes || 'Tiada nota tambahan.'}`,
+      targetDoc.isConfidential ? 'urgent' : 'high',
+      docId
+    );
+
+    showToast('Status Paper Dikemaskini', `Peredaran paper dikemaskini kepada: "${newStatus}".`, 'success');
+  };
+
+  // Category Management Handlers
+  const handleCreateCategory = (newCatData: Omit<CustomCategory, 'id' | 'createdAt'>) => {
+    if (currentUser.role !== 'admin') {
+      showToast('Akses Ditolak', 'Hanya Pentadbir dibenarkan mencipta kategori fail baharu.', 'error');
+      return;
+    }
+    const newCat: CustomCategory = {
+      ...newCatData,
+      id: `cat_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      createdAt: new Date().toISOString(),
+    };
+    setCategories((prev) => [...prev, newCat]);
+    logActivity('CIPTA_KATEGORI', undefined, undefined, `Mencipta kategori fail: ${newCat.name} (${newCat.code}).`);
+    showToast('Kategori Dicipta', `Kategori "${newCat.name}" sedia digunakan.`, 'success');
+  };
+
+  const handleUpdateCategory = (id: string, updates: Partial<CustomCategory>) => {
+    if (currentUser.role !== 'admin') {
+      showToast('Akses Ditolak', 'Hanya Pentadbir dibenarkan mengemaskini kategori.', 'error');
+      return;
+    }
+    setCategories((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, ...updates } : c))
+    );
+    logActivity('KEMASKINI_KATEGORI', undefined, undefined, `Mengemaskini maklumat kategori fail #${id}.`);
+    showToast('Kategori Dikemaskini', 'Maklumat kategori fail telah disimpan.', 'info');
+  };
+
+  const handleDeleteCategory = (id: string, name: string) => {
+    if (currentUser.role !== 'admin') {
+      showToast('Akses Ditolak', 'Hanya Pentadbir dibenarkan memadam kategori.', 'error');
+      return;
+    }
+    const linkedDocs = documents.filter((d) => d.category === name || d.category === id);
+    if (linkedDocs.length > 0) {
+      showToast('Kategori Sedang Digunakan', `Terdapat ${linkedDocs.length} dokumen dalam kategori "${name}". Tidak boleh dipadam.`, 'error');
+      return;
+    }
+    setCategories((prev) => prev.filter((c) => c.id !== id));
+    logActivity('PADAM_KATEGORI', undefined, undefined, `Memadam kategori fail "${name}".`);
+    showToast('Kategori Dipadam', `Kategori "${name}" telah dikeluarkan dari sistem.`, 'info');
+  };
+
+  // User Management Handlers (No. Perkhidmatan & Expiry Date)
+  const handleCreateUser = (newUser: UserProfile) => {
+    if (currentUser.role !== 'admin') {
+      showToast('Akses Ditolak', 'Hanya Pentadbir dibenarkan mendaftarkan pengguna baharu.', 'error');
+      return;
+    }
+    setUsers((prev) => [...prev, newUser]);
+    logActivity(
+      'CIPTA_PENGGUNA',
+      undefined,
+      undefined,
+      `Mendaftar akaun anggota: ${newUser.displayName} (No. Servis: ${newUser.serviceNumber}, Peranan: ${newUser.role.toUpperCase()}, Luput: ${newUser.expiryDate}).`
+    );
+    showToast('Pengguna Didaftarkan', `Anggota #${newUser.serviceNumber} (${newUser.displayName}) berjaya didaftarkan.`, 'success');
+  };
+
+  const handleUpdateUser = (userId: string, updates: Partial<UserProfile>) => {
+    if (currentUser.role !== 'admin') {
+      showToast('Akses Ditolak', 'Hanya Pentadbir dibenarkan mengemaskini pengguna.', 'error');
+      return;
+    }
+    setUsers((prev) =>
+      prev.map((u) => (u.uid === userId ? { ...u, ...updates } : u))
+    );
+    if (currentUser.uid === userId) {
+      setCurrentUser((prev) => ({ ...prev, ...updates }));
+    }
+    logActivity('KEMASKINI_PENGGUNA', undefined, undefined, `Mengemaskini profil akaun pengguna #${userId}.`);
+    showToast('Pengguna Dikemaskini', 'Profil pengguna berjaya dikemaskini.', 'info');
+  };
+
+  // Direct Login using 6-character / 6-digit Service Number
+  const handleLoginWithServiceNumber = (serviceNumber: string): boolean => {
+    const formattedNo = serviceNumber.trim().toUpperCase();
+    const foundUser = users.find((u) => u.serviceNumber.toUpperCase() === formattedNo);
+    if (!foundUser) {
+      showToast('Gagal Log Masuk', `No. Perkhidmatan "${formattedNo}" tidak dijumpai dalam pangkalan data kakitangan.`, 'error');
+      return false;
+    }
+
+    const isExpired = new Date(foundUser.expiryDate) < new Date();
+    if (isExpired || foundUser.status === 'expired') {
+      showToast(
+        'Akaun Tamat Tempoh',
+        `Akaun No. Perkhidmatan ${formattedNo} telah tamat tempoh sah pada ${foundUser.expiryDate}. Sila hubungi Pentadbir sistem untuk pembaharuan.`,
+        'error'
+      );
+      return false;
+    }
+
+    setCurrentUser(foundUser);
+    logActivity(
+      'LOG_MASUK_NO_PERKHIDMATAN',
+      undefined,
+      undefined,
+      `Log masuk berjaya menggunakan No. Perkhidmatan ${foundUser.serviceNumber} (${foundUser.displayName} - ${foundUser.role.toUpperCase()}).`
+    );
+    showToast('Log Masuk Berjaya', `Selamat kembali, ${foundUser.displayName} (#${foundUser.serviceNumber})`, 'success');
+    return true;
   };
 
   const handleDeleteDocument = (docId: string, title: string) => {
@@ -631,12 +821,14 @@ export default function App() {
               {currentTab === 'documents'
                 ? selectedDoc
                   ? `Fail: ${selectedDoc.title.substring(0, 28)}...`
-                  : 'Arkib Digital & Dokumen'
-                : currentTab === 'analytics'
-                ? 'Analitik Produktiviti'
+                  : 'Dokumen & Paper'
+                : currentTab === 'categories'
+                ? 'Pengurusan Kategori Fail & Paper'
+                : currentTab === 'users'
+                ? 'Pengurusan Pengguna (No. Perkhidmatan)'
                 : currentTab === 'organization'
                 ? 'Hierarki Jabatan & Unit'
-                : 'Log Jejak Audit'}
+                : 'Analitik Produktiviti & Log'}
             </span>
           </div>
 
@@ -650,9 +842,9 @@ export default function App() {
                 'KEMASKINI_PERANAN',
                 undefined,
                 undefined,
-                `Tukar sesi aktif kepada ${user.displayName} (${user.role.toUpperCase()}).`
+                `Tukar sesi aktif kepada ${user.displayName} (#${user.serviceNumber}).`
               );
-              showToast('Profil Ditukar', `Sesi kini: ${user.displayName} (${user.role.toUpperCase()})`, 'info');
+              showToast('Profil Ditukar', `Sesi kini: ${user.displayName} (#${user.serviceNumber})`, 'info');
             }}
             onGoogleSignIn={async () => {
               try {
@@ -687,6 +879,7 @@ export default function App() {
                 }}
                 onAddComment={handleAddComment}
                 onAddNewRevision={handleAddNewRevision}
+                onUpdatePaperStatus={handleUpdatePaperStatus}
                 onLogAccessAttempt={handleLogAccessAttempt}
                 onExportPDF={(doc) => {
                   exportDocumentsReportPDF([doc], currentUser.displayName, doc.category);
@@ -697,6 +890,7 @@ export default function App() {
             ) : (
               <DocumentList
                 documents={documents}
+                categories={categories}
                 currentUser={currentUser}
                 onSelectDocument={(doc) => setSelectedDocId(doc.id)}
                 onDeleteDocument={handleDeleteDocument}
@@ -716,16 +910,27 @@ export default function App() {
           </>
         )}
 
-        {currentTab === 'analytics' && (
-          <AnalyticsDashboard
+        {currentTab === 'categories' && (
+          <CategoryManagerModule
+            categories={categories}
             documents={documents}
-            logs={activityLogs}
-            departments={departments}
+            currentUser={currentUser}
+            onCreateCategory={handleCreateCategory}
+            onUpdateCategory={handleUpdateCategory}
+            onDeleteCategory={handleDeleteCategory}
+            onShowToast={showToast}
+          />
+        )}
+
+        {currentTab === 'users' && (
+          <UserManagerModule
             users={users}
-            onExportPDF={() => {
-              exportDocumentsReportPDF(documents, currentUser.displayName, 'Analitik Produktiviti');
-              showToast('Laporan Analitik PDF Dijana', 'Ringkasan eksekutif telah dimuat turun.', 'success');
-            }}
+            departments={departments}
+            currentUser={currentUser}
+            onCreateUser={handleCreateUser}
+            onUpdateUser={handleUpdateUser}
+            onLoginWithServiceNumber={handleLoginWithServiceNumber}
+            onShowToast={showToast}
           />
         )}
 
@@ -740,18 +945,33 @@ export default function App() {
           />
         )}
 
-        {currentTab === 'audit' && (
-          <AuditLogView
-            logs={activityLogs}
-            onExportPDF={() => {
-              exportActivityLogsReportPDF(activityLogs, currentUser.displayName);
-              showToast('Log Audit PDF Selesai', 'Laporan audit keselamatan dimuat turun.', 'success');
-            }}
-            onExportCSV={() => {
-              exportActivityLogsToCSV(activityLogs);
-              showToast('Log Audit CSV Selesai', 'Fail CSV log audit dimuat turun.', 'success');
-            }}
-          />
+        {currentTab === 'analytics' && (
+          <div className="space-y-10">
+            <AnalyticsDashboard
+              documents={documents}
+              logs={activityLogs}
+              departments={departments}
+              users={users}
+              onExportPDF={() => {
+                exportDocumentsReportPDF(documents, currentUser.displayName, 'Analitik Produktiviti');
+                showToast('Laporan Analitik PDF Dijana', 'Ringkasan eksekutif telah dimuat turun.', 'success');
+              }}
+            />
+
+            <div className="border-t border-slate-200 dark:border-slate-800 pt-8">
+              <AuditLogView
+                logs={activityLogs}
+                onExportPDF={() => {
+                  exportActivityLogsReportPDF(activityLogs, currentUser.displayName);
+                  showToast('Log Audit PDF Selesai', 'Laporan audit keselamatan dimuat turun.', 'success');
+                }}
+                onExportCSV={() => {
+                  exportActivityLogsToCSV(activityLogs);
+                  showToast('Log Audit CSV Selesai', 'Fail CSV log audit dimuat turun.', 'success');
+                }}
+              />
+            </div>
+          </div>
         )}
       </main>
 
@@ -766,6 +986,7 @@ export default function App() {
         initialDoc={editingDoc}
         currentUser={currentUser}
         departments={departments}
+        categories={categories}
         isOnline={isOnline}
         onShowToast={showToast}
       />
