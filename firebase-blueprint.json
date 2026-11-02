@@ -1,0 +1,147 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile with role, department, unit, and security clearance",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "displayName": { "type": "string", "maxLength": 100 },
+        "email": { "type": "string", "maxLength": 150 },
+        "role": { "type": "string", "enum": ["admin", "editor", "viewer"] },
+        "departmentId": { "type": "string", "maxLength": 64 },
+        "departmentName": { "type": "string", "maxLength": 100 },
+        "unitId": { "type": "string", "maxLength": 64 },
+        "unitName": { "type": "string", "maxLength": 100 },
+        "clearanceLevel": { "type": "string", "enum": ["BIASA", "TERHAD", "SULIT", "RAHSIA_BESAR"] },
+        "avatarUrl": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["uid", "displayName", "email", "role"]
+    },
+    "Department": {
+      "title": "Department",
+      "description": "Department and organizational units hierarchy",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "name": { "type": "string", "maxLength": 100 },
+        "code": { "type": "string", "maxLength": 20 },
+        "description": { "type": "string", "maxLength": 300 },
+        "headOfDepartment": { "type": "string", "maxLength": 100 },
+        "units": { "type": "string", "maxLength": 2000 },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "name", "code"]
+    },
+    "Document": {
+      "title": "Document",
+      "description": "Managed document with versioning, permissions, encryption flags, and metadata",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "title": { "type": "string", "maxLength": 200 },
+        "category": { "type": "string", "maxLength": 50 },
+        "taskCategory": { "type": "string", "maxLength": 50 },
+        "tags": { "type": "string", "maxLength": 500 },
+        "content": { "type": "string", "maxLength": 500000 },
+        "isConfidential": { "type": "string", "maxLength": 10 },
+        "clearanceRequired": { "type": "string", "maxLength": 30 },
+        "allowedUsers": { "type": "string", "maxLength": 2000 },
+        "departmentId": { "type": "string", "maxLength": 64 },
+        "unitId": { "type": "string", "maxLength": 64 },
+        "isEncrypted": { "type": "string", "maxLength": 10 },
+        "encryptionAlgo": { "type": "string", "maxLength": 50 },
+        "version": { "type": "string", "maxLength": 20 },
+        "versionCount": { "type": "number" },
+        "authorId": { "type": "string", "maxLength": 128 },
+        "authorName": { "type": "string", "maxLength": 100 },
+        "lastModifiedBy": { "type": "string", "maxLength": 100 },
+        "attachmentUrl": { "type": "string", "maxLength": 1000000 },
+        "attachmentName": { "type": "string", "maxLength": 200 },
+        "attachmentSizeOriginal": { "type": "number" },
+        "attachmentSizeCompressed": { "type": "number" },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "title", "category", "authorId", "authorName"]
+    },
+    "Comment": {
+      "title": "Comment",
+      "description": "Collaborative comment and revision note on documents",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "documentId": { "type": "string", "maxLength": 64 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "userName": { "type": "string", "maxLength": 100 },
+        "userRole": { "type": "string", "maxLength": 30 },
+        "text": { "type": "string", "maxLength": 2000 },
+        "revisionTag": { "type": "string", "maxLength": 50 },
+        "highlightText": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "documentId", "userId", "userName", "text"]
+    },
+    "ActivityLog": {
+      "title": "ActivityLog",
+      "description": "Real-time audit trail of actions taken in the DMS",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "userName": { "type": "string", "maxLength": 100 },
+        "userRole": { "type": "string", "maxLength": 30 },
+        "action": { "type": "string", "maxLength": 50 },
+        "documentId": { "type": "string", "maxLength": 64 },
+        "documentTitle": { "type": "string", "maxLength": 200 },
+        "details": { "type": "string", "maxLength": 1000 },
+        "isConfidential": { "type": "string", "maxLength": 10 },
+        "timestamp": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "userId", "userName", "action", "details"]
+    },
+    "EmailNotification": {
+      "title": "EmailNotification",
+      "description": "Automated email notification triggered on document actions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "recipientEmail": { "type": "string", "maxLength": 150 },
+        "recipientName": { "type": "string", "maxLength": 100 },
+        "subject": { "type": "string", "maxLength": 200 },
+        "body": { "type": "string", "maxLength": 2000 },
+        "documentId": { "type": "string", "maxLength": 64 },
+        "status": { "type": "string", "enum": ["sent", "queued", "failed"] },
+        "timestamp": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "recipientEmail", "subject", "body"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profiles with role and clearance"
+    },
+    "/departments/{departmentId}": {
+      "schema": "Department",
+      "description": "Organization departments and units"
+    },
+    "/documents/{documentId}": {
+      "schema": "Document",
+      "description": "Stored documents and archive items"
+    },
+    "/documents/{documentId}/comments/{commentId}": {
+      "schema": "Comment",
+      "description": "Document comments and revision notes"
+    },
+    "/activity_logs/{logId}": {
+      "schema": "ActivityLog",
+      "description": "System activity and access audit log"
+    },
+    "/notifications/{notificationId}": {
+      "schema": "EmailNotification",
+      "description": "Automated email notification logs"
+    }
+  }
+}

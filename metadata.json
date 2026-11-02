@@ -1,0 +1,6 @@
+{
+  "name": "ArkaDMS - Sistem Pengurusan Dokumen & Kolaborasi",
+  "description": "Sistem pengurusan dokumen selamat dengan kawalan akses hierarki, fail sulit terenkripsi, kolaborasi semakan, log audit, mod luar talian dan analitik produktiviti.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
