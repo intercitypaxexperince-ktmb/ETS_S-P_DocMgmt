@@ -10,6 +10,8 @@ import {
   UserProfile,
   EmailNotification,
   CustomCategory,
+  UserGroup,
+  DmsFolder,
 } from '../types/dms';
 
 export const INITIAL_DEPARTMENTS: Department[] = [
@@ -92,6 +94,23 @@ export const INITIAL_DEPARTMENTS: Department[] = [
       },
     ],
   },
+  {
+    id: 'dept_general',
+    name: 'Jabatan Am & Khidmat Pengurusan',
+    code: 'JAMK',
+    description: 'Jabatan rujukan am untuk fail, dokumen dan penugasan yang menunggu klasifikasi atau perpindahan hierarki.',
+    headOfDepartment: 'Bahagian Sumber Manusia & Tadbir Urus',
+    createdAt: '2026-01-01T08:00:00Z',
+    units: [
+      {
+        id: 'unit_general',
+        departmentId: 'dept_general',
+        name: 'Unit Pengurusan Am (Menunggu Penugasan)',
+        code: 'UAM',
+        description: 'Pusat tampungan fail dan staf menunggu penugasan rasmi.',
+      },
+    ],
+  },
 ];
 
 export const INITIAL_CATEGORIES: CustomCategory[] = [
@@ -171,6 +190,22 @@ export const INITIAL_CATEGORIES: CustomCategory[] = [
 
 export const INITIAL_USERS: UserProfile[] = [
   {
+    uid: 'user_super_admin_00',
+    serviceNumber: '990001', // No. Perkhidmatan Super Admin
+    displayName: 'Super Administrator',
+    email: 'intercity.pax.experince@gmail.com',
+    role: 'admin',
+    departmentId: 'dept_it',
+    departmentName: 'Jabatan Teknologi Maklumat & Keselamatan Siber',
+    unitId: 'unit_cyber_sec',
+    unitName: 'Unit Keselamatan Maklumat & Audit Siber',
+    clearanceLevel: 'P&C',
+    avatarUrl: '/src/assets/images/avatar_admin_lead_1793580726556.jpg',
+    expiryDate: '2030-12-31',
+    status: 'active',
+    password: 'AdminSuper123!',
+  },
+  {
     uid: 'user_admin_01',
     serviceNumber: '882104', // 6 digit no perkhidmatan wajib
     displayName: 'Ir. Dr. Faridah Mansor',
@@ -180,10 +215,11 @@ export const INITIAL_USERS: UserProfile[] = [
     departmentName: 'Jabatan Teknologi Maklumat & Keselamatan Siber',
     unitId: 'unit_cyber_sec',
     unitName: 'Unit Keselamatan Maklumat & Audit Siber',
-    clearanceLevel: 'RAHSIA_BESAR',
+    clearanceLevel: 'P&C',
     avatarUrl: '/src/assets/images/avatar_admin_lead_1793580726556.jpg',
     expiryDate: '2028-12-31',
     status: 'active',
+    password: 'Admin882104!',
   },
   {
     uid: 'user_editor_02',
@@ -199,6 +235,7 @@ export const INITIAL_USERS: UserProfile[] = [
     avatarUrl: '/src/assets/images/avatar_editor_audit_1793580727309.jpg',
     expiryDate: '2027-10-15',
     status: 'active',
+    password: 'User551203!',
   },
   {
     uid: 'user_viewer_03',
@@ -214,10 +251,196 @@ export const INITIAL_USERS: UserProfile[] = [
     avatarUrl: '/src/assets/images/avatar_viewer_analyst_1793580727967.jpg',
     expiryDate: '2027-04-30',
     status: 'active',
+    password: 'User339102!',
+  },
+];
+
+export const INITIAL_GROUPS: UserGroup[] = [
+  {
+    id: 'grp_mpc_top',
+    name: 'Jawatankuasa Perolehan Pengurusan (MPC)',
+    code: 'MPC-TERTINGGI',
+    description: 'Jawatankuasa penilai dan pelulus tender peringkat tertinggi organisasi (Akses Penuh).',
+    permission: 'all',
+    memberIds: ['user_super_admin_00', 'user_admin_01'],
+    departmentId: 'dept_it',
+    color: 'purple',
+    createdAt: '2026-01-15T08:00:00Z',
+    createdBy: 'Ir. Dr. Faridah Mansor',
+  },
+  {
+    id: 'grp_finance_procurement',
+    name: 'Pasukan Penilai Kewangan & Kontrak',
+    code: 'KEW-TENDER',
+    description: 'Kumpulan penilai integriti kewangan, bajet dan penggubalan klausa kontrak (Sunting Sahaja).',
+    permission: 'edit_only',
+    memberIds: ['user_super_admin_00', 'user_admin_01', 'user_viewer_03'],
+    departmentId: 'dept_finance',
+    color: 'emerald',
+    createdAt: '2026-01-16T09:00:00Z',
+    createdBy: 'Dato’ Seri Azman Hashim',
+  },
+  {
+    id: 'grp_audit_compliance',
+    name: 'Pasukan Audit & Pematuhan Integriti',
+    code: 'AUDIT-INT',
+    description: 'Kumpulan semakan pematuhan SOP, audit keselamatan dan integriti tadbir urus (Semak Sahaja).',
+    permission: 'review_only',
+    memberIds: ['user_editor_02', 'user_admin_01'],
+    departmentId: 'dept_legal',
+    color: 'blue',
+    createdAt: '2026-01-20T10:00:00Z',
+    createdBy: 'Ir. Dr. Faridah Mansor',
+  },
+  {
+    id: 'grp_staff_general',
+    name: 'Kumpulan Staf & Warga Am',
+    code: 'WARGA-AM',
+    description: 'Kumpulan capaian rujukan bagi pekeliling rasmi, SOP umum dan warta organisasi (Lihat Sahaja).',
+    permission: 'view_only',
+    memberIds: ['user_viewer_03', 'user_editor_02'],
+    color: 'slate',
+    createdAt: '2026-01-01T08:00:00Z',
+    createdBy: 'Sistem Pengurusan ArkaDMS',
+  },
+];
+
+export const INITIAL_FOLDERS: DmsFolder[] = [
+  {
+    id: 'fld_cyber_security',
+    name: '01. Keselamatan Siber & Dasar IT',
+    parentId: null,
+    departmentId: 'dept_it',
+    unitId: 'unit_cyber_sec',
+    clearanceLevel: 'SULIT',
+    allowedGroups: ['grp_mpc_top', 'grp_audit_compliance'],
+    allowedUsers: ['user_admin_01', 'user_editor_02'],
+    color: 'blue',
+    description: 'Dokumen dasar ISO 27001, pelan mitigasi insiden siber, dan audit kriptografi.',
+    createdAt: '2026-01-15T08:00:00Z',
+    createdBy: 'Ir. Dr. Faridah Mansor',
+  },
+  {
+    id: 'fld_tenders_procurement',
+    name: '02. Kertas Cadangan & Tender 2026',
+    parentId: null,
+    departmentId: 'dept_finance',
+    clearanceLevel: 'P&C',
+    allowedGroups: ['grp_mpc_top', 'grp_finance_procurement'],
+    allowedUsers: ['user_admin_01'],
+    color: 'amber',
+    description: 'Kertas perakuan tender, cadangan pembekalan berimpak tinggi, dan perolehan strategik.',
+    createdAt: '2026-01-18T09:00:00Z',
+    createdBy: 'Ir. Dr. Faridah Mansor',
+  },
+  {
+    id: 'fld_sub_dal',
+    name: 'Kertas DAL & Kelulusan Kuasa',
+    parentId: 'fld_tenders_procurement',
+    departmentId: 'dept_finance',
+    clearanceLevel: 'P&C',
+    allowedGroups: ['grp_mpc_top'],
+    color: 'rose',
+    description: 'Kertas perakuan kuasa perbelanjaan budi bicara dan siling had kewangan.',
+    createdAt: '2026-01-20T10:00:00Z',
+    createdBy: 'Ir. Dr. Faridah Mansor',
+  },
+  {
+    id: 'fld_sop_guidelines',
+    name: '03. Standard Operating Procedures (SOP)',
+    parentId: null,
+    departmentId: 'dept_general',
+    clearanceLevel: 'BIASA',
+    allowedGroups: ['grp_staff_general', 'grp_audit_compliance'],
+    color: 'emerald',
+    description: 'Koleksi tatacara operasi standard, arahan pentadbiran dan panduan kakitangan.',
+    createdAt: '2026-01-10T08:00:00Z',
+    createdBy: 'Bahagian Sumber Manusia & Tadbir Urus',
+  },
+  {
+    id: 'fld_contracts_legal',
+    name: '04. Kontrak & Perjanjian Perundangan',
+    parentId: null,
+    departmentId: 'dept_legal',
+    clearanceLevel: 'TERHAD',
+    allowedGroups: ['grp_finance_procurement', 'grp_audit_compliance'],
+    color: 'indigo',
+    description: 'Draf perjanjian vendor, surat setuju terima (SST) dan jaminan SLA.',
+    createdAt: '2026-01-22T11:00:00Z',
+    createdBy: 'Puan Sri Zainab binti Sulaiman',
   },
 ];
 
 export const INITIAL_DOCUMENTS: DmsDocument[] = [
+  {
+    id: 'doc_mpc_perolehan_pnc',
+    title: 'Paper MPC (P&C): Cadangan Pelantikan Kontraktor Khas Pertahanan Siber & Forensik Digital Agensi',
+    category: 'Paper MPC',
+    taskCategory: 'Kelulusan Pengurusan',
+    tags: ['Paper MPC', 'P&C', 'SULIT', 'Pertahanan', 'Khas'],
+    summary: 'Kertas kerja kelulusan Jawatankuasa Perolehan Pengurusan Tertinggi (MPC) terperingkat P&C bagi pelantikan kontraktor keselamatan kritikal.',
+    documentDate: '2026-03-01',
+    content: `DOKUMEN TERPERINGKAT P&C (PRIVATE & CONFIDENTIAL)
+HANYA UNTUK EDARAN AHLI JAWATANKUASA PEROLEHAN PENGURUSAN (MPC) & PENGARAH
+
+1.0 TUJUAN
+Kertas ini bertujuan mendapatkan perakuan MPC bagi pelantikan terus kontraktor pertahanan siber strategik.
+
+2.0 PENILAIAN KESELAMATAN & INTEGRITI
+Syarikat yang dicalonkan telah melepasi tapisan keselamatan khas agensi risikan pusat dan memenuhi piawaian Akta Rahsia Rasmi.
+
+3.0 SYOR
+Dipohon agar Jawatankuasa MPC meluluskan syor pelantikan bagi fasa pembangunan kubu pertahanan siber selama 24 bulan.`,
+    isConfidential: true,
+    clearanceRequired: 'P&C',
+    allowedUsers: ['user_admin_01'],
+    allowedGroups: ['grp_mpc_top'],
+    folderId: 'fld_sub_dal',
+    offlineAvailable: true,
+    departmentId: 'dept_it',
+    unitId: 'unit_cyber_sec',
+    isEncrypted: false,
+    currentVersion: '1.0',
+    revisions: [
+      {
+        id: 'rev_pnc_1',
+        version: '1.0',
+        changeSummary: 'Draf asal kertas pertimbangan P&C dikemukakan ke MPC.',
+        authorId: 'user_admin_01',
+        authorName: 'Ir. Dr. Faridah Mansor',
+        timestamp: '2026-03-01T08:00:00Z',
+        contentSnapshot: 'Draf asal kertas P&C...',
+      },
+    ],
+    authorId: 'user_admin_01',
+    authorName: 'Ir. Dr. Faridah Mansor',
+    authorEmail: 'faridah.mansor@arkadms.gov.my',
+    creatorServiceNumber: '882104',
+    lastModifiedBy: 'Ir. Dr. Faridah Mansor',
+    createdAt: '2026-03-01T08:00:00Z',
+    updatedAt: '2026-03-01T08:00:00Z',
+    paperStatus: 'Semakan Jawatankuasa MPC/Tender',
+    workflowChronology: [
+      {
+        id: 'wf_pnc_1',
+        stage: 'Penyediaan Draf P&C',
+        handledBy: 'Ir. Dr. Faridah Mansor (No. 882104)',
+        departmentName: 'Jabatan IT & Keselamatan Siber',
+        date: '2026-03-01 08:00',
+        status: 'selesai',
+        notes: 'Penyediaan draf kertas terperingkat P&C dengan tandatangan keselamatan.',
+      },
+      {
+        id: 'wf_pnc_2',
+        stage: 'Semakan Jawatankuasa MPC',
+        handledBy: 'Setiausaha Jawatankuasa MPC',
+        departmentName: 'Pejabat Ketua Pegawai Eksekutif',
+        date: '2026-03-02 10:00',
+        status: 'sedang_diproses',
+        notes: 'Sedang disemak oleh ahli MPC dalam bilik mesyuarat tertutup.',
+      },
+    ],
+  },
   {
     id: 'doc_tender_pelayan_cloud',
     title: 'Paper Tender: Pembekalan & Pemasangan Infrastruktur Awan Hibrid Sektor Awam 2026/2027',
@@ -241,6 +464,9 @@ Dipohon agar Jawatankuasa Tender meluluskan iklan tender terbuka antarabangsa de
     isConfidential: true,
     clearanceRequired: 'SULIT',
     allowedUsers: ['user_admin_01', 'user_editor_02'],
+    allowedGroups: ['grp_mpc_top', 'grp_finance_procurement'],
+    folderId: 'fld_tenders_procurement',
+    offlineAvailable: true,
     departmentId: 'dept_it',
     unitId: 'unit_infra_cloud',
     isEncrypted: false,
@@ -336,6 +562,9 @@ Semua perbelanjaan wajib dilaporkan secara bertulis kepada Jawatankuasa Audit Fo
     isConfidential: true,
     clearanceRequired: 'SULIT',
     allowedUsers: ['user_admin_01'],
+    allowedGroups: ['grp_mpc_top', 'grp_finance_procurement'],
+    folderId: 'fld_sub_dal',
+    offlineAvailable: true,
     departmentId: 'dept_finance',
     unitId: 'unit_budget',
     isEncrypted: true,
@@ -428,6 +657,9 @@ KOD DOKUMEN: SOP-JTMK-SEC-012
 Salinan sandaran kunci disulitkan dengan dua lapis penyulitan dan disimpan di dua lokasi fizikal berasingan.`,
     isConfidential: false,
     clearanceRequired: 'BIASA',
+    allowedGroups: ['grp_staff_general', 'grp_audit_compliance'],
+    folderId: 'fld_sop_guidelines',
+    offlineAvailable: true,
     departmentId: 'dept_it',
     unitId: 'unit_cyber_sec',
     isEncrypted: false,

@@ -7,6 +7,7 @@ import React, { useState, useEffect } from 'react';
 import {
   DmsDocument,
   Department,
+  Unit,
   UserProfile,
   ActivityLog,
   EmailNotification,
@@ -16,6 +17,11 @@ import {
   CustomCategory,
   PaperStatus,
   DocumentWorkflowStep,
+  GoogleStorageConfig,
+  canManageUsers,
+  SUPER_ADMIN_EMAIL,
+  UserGroup,
+  DmsFolder,
 } from './types/dms';
 import {
   INITIAL_DEPARTMENTS,
@@ -24,11 +30,15 @@ import {
   INITIAL_ACTIVITY_LOGS,
   INITIAL_NOTIFICATIONS,
   INITIAL_CATEGORIES,
+  INITIAL_GROUPS,
+  INITIAL_FOLDERS,
 } from './data/initialData';
 import { TopBar } from './components/TopBar';
 import { DocumentList } from './components/DocumentList';
 import { DocumentDetail } from './components/DocumentDetail';
 import { DocumentEditorModal } from './components/DocumentEditorModal';
+import { DriveFolderView } from './components/DriveFolderView';
+import { UserGroupModule } from './components/UserGroupModule';
 import { AnalyticsDashboard } from './components/AnalyticsDashboard';
 import { OrganizationModule } from './components/OrganizationModule';
 import { AuditLogView } from './components/AuditLogView';
@@ -36,7 +46,9 @@ import { UserManagerModule } from './components/UserManagerModule';
 import { CategoryManagerModule } from './components/CategoryManagerModule';
 import { NotificationCenterModal } from './components/NotificationCenterModal';
 import { UserProfileSwitcher } from './components/UserProfileSwitcher';
+import { GoogleStorageSetupModal } from './components/GoogleStorageSetupModal';
 import { ToastContainer, ToastMessage } from './components/Toast';
+import { getStorageConfig } from './lib/storage';
 import {
   exportDocumentsReportPDF,
   exportActivityLogsReportPDF,
@@ -61,26 +73,145 @@ import {
   deleteDoc,
 } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, Folder, FileText } from 'lucide-react';
 
 export default function App() {
-  const [currentTab, setCurrentTab] = useState<'documents' | 'categories' | 'users' | 'organization' | 'analytics'>('documents');
+  const [currentTab, setCurrentTab] = useState<'documents' | 'categories' | 'users' | 'groups' | 'organization' | 'analytics'>('documents');
+  const [docViewStyle, setDocViewStyle] = useState<'standard' | 'drive'>('standard');
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
 
-  // Core DMS State
   const [departments, setDepartments] = useState<Department[]>(() => {
     const saved = localStorage.getItem('arkadms_departments');
-    return saved ? JSON.parse(saved) : INITIAL_DEPARTMENTS;
+    if (saved) {
+      try {
+        const list = JSON.parse(saved) as Department[];
+        if (Array.isArray(list) && list.length > 0) {
+          if (!list.some((d) => d.id === 'dept_general')) {
+            const generalDept = INITIAL_DEPARTMENTS.find((d) => d.id === 'dept_general');
+            if (generalDept) list.push(generalDept);
+          }
+          return list;
+        }
+      } catch (e) {}
+    }
+    return INITIAL_DEPARTMENTS;
+  });
+
+  const [groups, setGroups] = useState<UserGroup[]>(() => {
+    const saved = localStorage.getItem('arkadms_groups');
+    if (saved) {
+      try {
+        const list = JSON.parse(saved);
+        if (Array.isArray(list) && list.length > 0) return list;
+      } catch (e) {}
+    }
+    return INITIAL_GROUPS;
+  });
+
+  const [folders, setFolders] = useState<DmsFolder[]>(() => {
+    const saved = localStorage.getItem('arkadms_folders');
+    if (saved) {
+      try {
+        const list = JSON.parse(saved);
+        if (Array.isArray(list) && list.length > 0) return list;
+      } catch (e) {}
+    }
+    return INITIAL_FOLDERS;
   });
 
   const [documents, setDocuments] = useState<DmsDocument[]>(() => {
     const saved = localStorage.getItem('arkadms_documents');
-    return saved ? JSON.parse(saved) : INITIAL_DOCUMENTS;
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved) as Partial<DmsDocument>[];
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.map((doc, idx) => {
+            const fallback = INITIAL_DOCUMENTS.find((d) => d.id === doc.id) || INITIAL_DOCUMENTS[idx % INITIAL_DOCUMENTS.length];
+            const fallbackDate = doc.createdAt ? doc.createdAt.split('T')[0] : '2026-02-15';
+            return {
+              ...fallback,
+              ...doc,
+              title: doc.title || fallback?.title || 'Dokumen',
+              category: doc.category || fallback?.category || 'SOP',
+              taskCategory: doc.taskCategory || fallback?.taskCategory || 'Tugasan Projek',
+              tags: doc.tags || fallback?.tags || [],
+              content: doc.content || fallback?.content || '',
+              summary: doc.summary || fallback?.summary || '',
+              isConfidential: Boolean(doc.isConfidential),
+              clearanceRequired: (doc.clearanceRequired === 'RAHSIA_BESAR' ? 'P&C' : (doc.clearanceRequired || fallback?.clearanceRequired || 'BIASA')),
+              isEncrypted: Boolean(doc.isEncrypted),
+              currentVersion: doc.currentVersion || fallback?.currentVersion || '1.0',
+              revisions: doc.revisions || fallback?.revisions || [],
+              documentDate: doc.documentDate || fallback?.documentDate || fallbackDate,
+              authorId: doc.authorId || fallback?.authorId || 'user_admin_01',
+              authorName: doc.authorName || fallback?.authorName || 'Ir. Dr. Faridah Mansor',
+              authorEmail: doc.authorEmail || fallback?.authorEmail || 'faridah.mansor@arkadms.gov.my',
+              creatorServiceNumber: doc.creatorServiceNumber || fallback?.creatorServiceNumber || '882104',
+              lastModifiedBy: doc.lastModifiedBy || fallback?.lastModifiedBy || 'Ir. Dr. Faridah Mansor',
+              paperStatus: doc.paperStatus || fallback?.paperStatus || 'Disediakan',
+              folderId: doc.folderId !== undefined ? doc.folderId : (fallback?.folderId ?? null),
+              allowedGroups: doc.allowedGroups || fallback?.allowedGroups || [],
+              allowedUsers: doc.allowedUsers || fallback?.allowedUsers || [],
+              offlineAvailable: doc.offlineAvailable !== undefined ? doc.offlineAvailable : (fallback?.offlineAvailable ?? true),
+              workflowChronology: doc.workflowChronology && doc.workflowChronology.length > 0
+                ? doc.workflowChronology
+                : (fallback?.workflowChronology || [
+                    {
+                      id: `step_init_${Date.now()}_${idx}`,
+                      stage: 'Penyediaan Draf Awal',
+                      handledBy: `${doc.authorName || 'Pegawai'} (#${doc.creatorServiceNumber || '882104'})`,
+                      departmentName: 'Jabatan Teknologi Maklumat & Keselamatan Siber',
+                      date: doc.documentDate || fallbackDate,
+                      status: 'selesai',
+                      notes: 'Dokumen arkib dimuat naik ke dalam sistem.',
+                    },
+                  ]),
+              createdAt: doc.createdAt || fallback?.createdAt || new Date().toISOString(),
+              updatedAt: doc.updatedAt || fallback?.updatedAt || new Date().toISOString(),
+            } as DmsDocument;
+          });
+        }
+      } catch (e) {
+        return INITIAL_DOCUMENTS;
+      }
+    }
+    return INITIAL_DOCUMENTS;
   });
 
   const [users, setUsers] = useState<UserProfile[]>(() => {
     const saved = localStorage.getItem('arkadms_users');
-    return saved ? JSON.parse(saved) : INITIAL_USERS;
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved) as Partial<UserProfile>[];
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.map((u, idx) => {
+            const fallback = INITIAL_USERS.find((init) => init.uid === u.uid) || INITIAL_USERS[idx % INITIAL_USERS.length];
+            const rawClearance = u.clearanceLevel || fallback?.clearanceLevel || 'BIASA';
+            const normalizedClearance: ClearanceLevel = rawClearance === 'RAHSIA_BESAR' ? 'P&C' : rawClearance;
+            return {
+              ...fallback,
+              ...u,
+              uid: u.uid || `user_${Date.now()}_${idx}`,
+              serviceNumber: u.serviceNumber || fallback?.serviceNumber || String(880000 + idx).padStart(6, '0'),
+              displayName: u.displayName || fallback?.displayName || 'Pegawai',
+              email: u.email || fallback?.email || 'pegawai@arkadms.gov.my',
+              role: u.role || fallback?.role || 'viewer',
+              departmentId: u.departmentId || fallback?.departmentId || 'dept_it',
+              departmentName: u.departmentName || fallback?.departmentName || 'Jabatan Teknologi Maklumat & Keselamatan Siber',
+              unitId: u.unitId || fallback?.unitId || 'unit_cyber_sec',
+              unitName: u.unitName || fallback?.unitName || 'Unit Keselamatan Maklumat & Audit Siber',
+              clearanceLevel: normalizedClearance,
+              avatarUrl: u.avatarUrl || fallback?.avatarUrl || '/src/assets/images/avatar_viewer_analyst_1793580727967.jpg',
+              expiryDate: u.expiryDate || fallback?.expiryDate || '2028-12-31',
+              status: u.status || fallback?.status || 'active',
+            } as UserProfile;
+          });
+        }
+      } catch (e) {
+        return INITIAL_USERS;
+      }
+    }
+    return INITIAL_USERS;
   });
 
   const [categories, setCategories] = useState<CustomCategory[]>(() => {
@@ -88,7 +219,15 @@ export default function App() {
     return saved ? JSON.parse(saved) : INITIAL_CATEGORIES;
   });
 
-  const [currentUser, setCurrentUser] = useState<UserProfile>(users[0]);
+  const [currentUser, setCurrentUser] = useState<UserProfile>(() => {
+    const initialFirst = users[0] || INITIAL_USERS[0];
+    return {
+      ...initialFirst,
+      serviceNumber: initialFirst?.serviceNumber || '882104',
+      expiryDate: initialFirst?.expiryDate || '2028-12-31',
+      status: initialFirst?.status || 'active',
+    };
+  });
 
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>(() => {
     const saved = localStorage.getItem('arkadms_logs');
@@ -135,6 +274,8 @@ export default function App() {
   const [isEditorModalOpen, setIsEditorModalOpen] = useState(false);
   const [editingDoc, setEditingDoc] = useState<DmsDocument | null>(null);
   const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
+  const [isStorageSetupOpen, setIsStorageSetupOpen] = useState(false);
+  const [storageConfig, setStorageConfig] = useState<GoogleStorageConfig>(() => getStorageConfig());
   const [syncBannerMessage, setSyncBannerMessage] = useState<string | null>(null);
 
   // Connectivity & Offline
@@ -169,6 +310,14 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('arkadms_notifications', JSON.stringify(notifications));
   }, [notifications]);
+
+  useEffect(() => {
+    localStorage.setItem('arkadms_groups', JSON.stringify(groups));
+  }, [groups]);
+
+  useEffect(() => {
+    localStorage.setItem('arkadms_folders', JSON.stringify(folders));
+  }, [folders]);
 
   // Firebase connection and Auth listener
   useEffect(() => {
@@ -551,33 +700,52 @@ export default function App() {
     showToast('Pengguna Dikemaskini', 'Profil pengguna berjaya dikemaskini.', 'info');
   };
 
-  // Direct Login using 6-character / 6-digit Service Number
-  const handleLoginWithServiceNumber = (serviceNumber: string): boolean => {
-    const formattedNo = serviceNumber.trim().toUpperCase();
-    const foundUser = users.find((u) => u.serviceNumber.toUpperCase() === formattedNo);
+  // Secure Login using 6-character Service Number AND Password
+  const handleLoginWithCredentials = (serviceNumber: string, passwordInput: string): boolean => {
+    if (!serviceNumber || !passwordInput) return false;
+    const formattedNo = String(serviceNumber).trim().toUpperCase();
+    const foundUser = users.find(
+      (u) => (u.serviceNumber ? String(u.serviceNumber).trim().toUpperCase() : '') === formattedNo
+    );
     if (!foundUser) {
       showToast('Gagal Log Masuk', `No. Perkhidmatan "${formattedNo}" tidak dijumpai dalam pangkalan data kakitangan.`, 'error');
       return false;
     }
 
-    const isExpired = new Date(foundUser.expiryDate) < new Date();
+    // Verify password
+    const expectedPassword = foundUser.password || `Admin${foundUser.serviceNumber}!`;
+    if (expectedPassword && expectedPassword !== passwordInput.trim()) {
+      showToast('Gagal Log Masuk', 'Kata laluan yang dimasukkan tidak tepat.', 'error');
+      return false;
+    }
+
+    const expiryDateStr = foundUser.expiryDate || '2028-12-31';
+    const isExpired = new Date(expiryDateStr).getTime() < new Date().getTime();
     if (isExpired || foundUser.status === 'expired') {
       showToast(
         'Akaun Tamat Tempoh',
-        `Akaun No. Perkhidmatan ${formattedNo} telah tamat tempoh sah pada ${foundUser.expiryDate}. Sila hubungi Pentadbir sistem untuk pembaharuan.`,
+        `Akaun No. Perkhidmatan ${formattedNo} telah tamat tempoh sah pada ${expiryDateStr}. Sila hubungi Pentadbir sistem untuk pembaharuan.`,
         'error'
       );
       return false;
     }
 
-    setCurrentUser(foundUser);
+    const validUser: UserProfile = {
+      ...foundUser,
+      serviceNumber: foundUser.serviceNumber || formattedNo,
+      expiryDate: expiryDateStr,
+      status: foundUser.status || 'active',
+      password: expectedPassword,
+    };
+
+    setCurrentUser(validUser);
     logActivity(
       'LOG_MASUK_NO_PERKHIDMATAN',
       undefined,
       undefined,
-      `Log masuk berjaya menggunakan No. Perkhidmatan ${foundUser.serviceNumber} (${foundUser.displayName} - ${foundUser.role.toUpperCase()}).`
+      `Log masuk disahkan menggunakan No. Perkhidmatan ${validUser.serviceNumber} (${validUser.displayName} - ${validUser.role.toUpperCase()}).`
     );
-    showToast('Log Masuk Berjaya', `Selamat kembali, ${foundUser.displayName} (#${foundUser.serviceNumber})`, 'success');
+    showToast('Log Masuk Berjaya', `Selamat kembali, ${validUser.displayName} (#${validUser.serviceNumber})`, 'success');
     return true;
   };
 
@@ -733,6 +901,100 @@ export default function App() {
     showToast('Jabatan Dicipta', `Jabatan ${newDept.name} berjaya ditambah.`, 'success');
   };
 
+  const handleUpdateDepartment = (deptId: string, updates: Partial<Department>) => {
+    if (!canManageUsers(currentUser)) {
+      showToast('Akses Ditolak', 'Hanya Pentadbir dibenarkan mengemaskini jabatan.', 'error');
+      return;
+    }
+    setDepartments((prev) =>
+      prev.map((d) => (d.id === deptId ? { ...d, ...updates } : d))
+    );
+    if (updates.name) {
+      setUsers((prev) =>
+        prev.map((u) => (u.departmentId === deptId ? { ...u, departmentName: updates.name! } : u))
+      );
+      if (currentUser.departmentId === deptId) {
+        setCurrentUser((prev) => ({ ...prev, departmentName: updates.name! }));
+      }
+    }
+    logActivity('KEMASKINI_JABATAN', undefined, undefined, `Mengemaskini maklumat jabatan #${deptId}.`);
+    showToast('Jabatan Dikemaskini', 'Maklumat jabatan berjaya disimpan.', 'success');
+  };
+
+  const handleDeleteDepartment = (deptId: string, fallbackDeptId: string, fallbackUnitId: string) => {
+    if (!canManageUsers(currentUser)) {
+      showToast('Akses Ditolak', 'Hanya Pentadbir dibenarkan memadam jabatan.', 'error');
+      return;
+    }
+    const targetDept = departments.find((d) => d.id === deptId);
+    if (!targetDept) return;
+
+    if (targetDept.units && targetDept.units.length > 0) {
+      showToast(
+        'Gagal Memadam',
+        `Jabatan "${targetDept.name}" masih mempunyai ${targetDept.units.length} unit. Sila padam unit terlebih dahulu.`,
+        'error'
+      );
+      return;
+    }
+
+    const fallbackDept = departments.find((d) => d.id === fallbackDeptId) || departments.find((d) => d.id === 'dept_general');
+    const fallbackUnit = fallbackDept?.units.find((u) => u.id === fallbackUnitId) || fallbackDept?.units[0];
+    const fallbackDeptName = fallbackDept?.name || 'Jabatan Am & Khidmat Pengurusan';
+    const fallbackUnitName = fallbackUnit?.name || 'Unit Pengurusan Am (Menunggu Penugasan)';
+
+    // Reassign affected documents so they never become orphaned
+    setDocuments((prev) =>
+      prev.map((doc) => {
+        if (doc.departmentId === deptId) {
+          return {
+            ...doc,
+            departmentId: fallbackDept?.id || 'dept_general',
+            unitId: fallbackUnit?.id || 'unit_general',
+            lastModifiedBy: currentUser.displayName,
+            updatedAt: new Date().toISOString(),
+          };
+        }
+        return doc;
+      })
+    );
+
+    // Reassign affected users
+    setUsers((prev) =>
+      prev.map((u) => {
+        if (u.departmentId === deptId) {
+          return {
+            ...u,
+            departmentId: fallbackDept?.id || 'dept_general',
+            departmentName: fallbackDeptName,
+            unitId: fallbackUnit?.id || 'unit_general',
+            unitName: fallbackUnitName,
+          };
+        }
+        return u;
+      })
+    );
+
+    if (currentUser.departmentId === deptId) {
+      setCurrentUser((prev) => ({
+        ...prev,
+        departmentId: fallbackDept?.id || 'dept_general',
+        departmentName: fallbackDeptName,
+        unitId: fallbackUnit?.id || 'unit_general',
+        unitName: fallbackUnitName,
+      }));
+    }
+
+    setDepartments((prev) => prev.filter((d) => d.id !== deptId));
+    logActivity(
+      'PADAM_JABATAN',
+      undefined,
+      undefined,
+      `Memadam jabatan "${targetDept.name}". Fail & pegawai dipindahkan ke "${fallbackDeptName}".`
+    );
+    showToast('Jabatan Dipadam', `Jabatan "${targetDept.name}" telah dipadam dan rekod dialihkan.`, 'info');
+  };
+
   const handleCreateUnit = (deptId: string, newUnitData: any) => {
     const updated = departments.map((d) => {
       if (d.id === deptId) {
@@ -755,6 +1017,102 @@ export default function App() {
     showToast('Unit Dicipta', `Unit ${newUnitData.name} berjaya ditambah.`, 'success');
   };
 
+  const handleUpdateUnit = (deptId: string, unitId: string, updates: Partial<Unit>) => {
+    if (!canManageUsers(currentUser)) {
+      showToast('Akses Ditolak', 'Hanya Pentadbir dibenarkan mengemaskini unit.', 'error');
+      return;
+    }
+    setDepartments((prev) =>
+      prev.map((d) => {
+        if (d.id === deptId) {
+          return {
+            ...d,
+            units: d.units.map((u) => (u.id === unitId ? { ...u, ...updates } : u)),
+          };
+        }
+        return d;
+      })
+    );
+    if (updates.name) {
+      setUsers((prev) =>
+        prev.map((u) => (u.unitId === unitId ? { ...u, unitName: updates.name! } : u))
+      );
+      if (currentUser.unitId === unitId) {
+        setCurrentUser((prev) => ({ ...prev, unitName: updates.name! }));
+      }
+    }
+    logActivity('KEMASKINI_UNIT', undefined, undefined, `Mengemaskini maklumat unit #${unitId}.`);
+    showToast('Unit Dikemaskini', 'Maklumat unit berjaya dikemaskini.', 'success');
+  };
+
+  const handleDeleteUnit = (deptId: string, unitId: string, fallbackUnitId: string) => {
+    if (!canManageUsers(currentUser)) {
+      showToast('Akses Ditolak', 'Hanya Pentadbir dibenarkan memadam unit.', 'error');
+      return;
+    }
+    const parentDept = departments.find((d) => d.id === deptId);
+    const targetUnit = parentDept?.units.find((u) => u.id === unitId);
+    const fallbackUnit = parentDept?.units.find((u) => u.id === fallbackUnitId);
+    const fallbackUnitName = fallbackUnit?.name || 'Unit Pengurusan Am (Menunggu Penugasan)';
+
+    // Reassign documents
+    setDocuments((prev) =>
+      prev.map((doc) => {
+        if (doc.unitId === unitId) {
+          return {
+            ...doc,
+            unitId: fallbackUnit?.id || 'unit_general',
+            lastModifiedBy: currentUser.displayName,
+            updatedAt: new Date().toISOString(),
+          };
+        }
+        return doc;
+      })
+    );
+
+    // Reassign users
+    setUsers((prev) =>
+      prev.map((u) => {
+        if (u.unitId === unitId) {
+          return {
+            ...u,
+            unitId: fallbackUnit?.id || 'unit_general',
+            unitName: fallbackUnitName,
+          };
+        }
+        return u;
+      })
+    );
+
+    if (currentUser.unitId === unitId) {
+      setCurrentUser((prev) => ({
+        ...prev,
+        unitId: fallbackUnit?.id || 'unit_general',
+        unitName: fallbackUnitName,
+      }));
+    }
+
+    setDepartments((prev) =>
+      prev.map((d) => {
+        if (d.id === deptId) {
+          return {
+            ...d,
+            units: d.units.filter((u) => u.id !== unitId),
+          };
+        }
+        return d;
+      })
+    );
+
+    logActivity(
+      'PADAM_UNIT',
+      undefined,
+      undefined,
+      `Memadam unit "${targetUnit?.name}". Fail dialihkan kepada "${fallbackUnitName}".`
+    );
+    showToast('Unit Dipadam', `Unit "${targetUnit?.name}" dipadam dan fail dialihkan.`, 'info');
+  };
+
   const handleUpdateUserRole = (userId: string, newRole: UserRole, newClearance: ClearanceLevel) => {
     const targetUser = users.find((u) => u.uid === userId);
     setUsers((prev) =>
@@ -770,6 +1128,117 @@ export default function App() {
       `Mengubah peranan ${targetUser?.displayName} kepada ${newRole.toUpperCase()} (Tapisan: ${newClearance}).`
     );
     showToast('Akses Pengguna Dikemaskini', `${targetUser?.displayName}: ${newRole.toUpperCase()} · ${newClearance}`, 'info');
+  };
+
+  // User Group Handlers
+  const handleCreateGroup = (newGroupData: Omit<UserGroup, 'id' | 'createdAt'>) => {
+    const newGroup: UserGroup = {
+      ...newGroupData,
+      id: `grp_${Date.now()}`,
+      createdAt: new Date().toISOString(),
+    };
+    setGroups((prev) => [...prev, newGroup]);
+    logActivity('CIPTA_GROUP', undefined, undefined, `Mencipta kumpulan pengguna: "${newGroup.name}" (${newGroup.code}) dengan kebenaran: ${newGroup.permission}.`);
+    showToast('Kumpulan Dicipta', `Kumpulan "${newGroup.name}" berjaya ditambah.`, 'success');
+  };
+
+  const handleUpdateGroup = (groupId: string, updates: Partial<UserGroup>) => {
+    setGroups((prev) =>
+      prev.map((g) => (g.id === groupId ? { ...g, ...updates } : g))
+    );
+    logActivity('KEMASKINI_GROUP', undefined, undefined, `Mengemaskini kumpulan #${groupId}.`);
+    showToast('Kumpulan Dikemaskini', 'Perubahan kumpulan berjaya disimpan.', 'success');
+  };
+
+  const handleDeleteGroup = (groupId: string) => {
+    const targetGroup = groups.find((g) => g.id === groupId);
+    setGroups((prev) => prev.filter((g) => g.id !== groupId));
+    setDocuments((prev) =>
+      prev.map((d) => {
+        if (d.allowedGroups?.includes(groupId)) {
+          return {
+            ...d,
+            allowedGroups: d.allowedGroups.filter((gId) => gId !== groupId),
+          };
+        }
+        return d;
+      })
+    );
+    setFolders((prev) =>
+      prev.map((f) => {
+        if (f.allowedGroups?.includes(groupId)) {
+          return {
+            ...f,
+            allowedGroups: f.allowedGroups.filter((gId) => gId !== groupId),
+          };
+        }
+        return f;
+      })
+    );
+    logActivity('PADAM_GROUP', undefined, undefined, `Memadam kumpulan "${targetGroup?.name || groupId}".`);
+    showToast('Kumpulan Dipadam', `Kumpulan "${targetGroup?.name || groupId}" telah dipadam.`, 'info');
+  };
+
+  // Folder Handlers
+  const handleCreateFolder = (newFolderData: Omit<DmsFolder, 'id' | 'createdAt'>) => {
+    const newFolder: DmsFolder = {
+      ...newFolderData,
+      id: `fld_${Date.now()}`,
+      createdAt: new Date().toISOString(),
+    };
+    setFolders((prev) => [...prev, newFolder]);
+    logActivity('CIPTA_FOLDER', undefined, undefined, `Mencipta folder arkib: "${newFolder.name}" (${newFolder.clearanceLevel}).`);
+    showToast('Folder Dicipta', `Folder "${newFolder.name}" berjaya diwujudkan.`, 'success');
+  };
+
+  const handleUpdateFolder = (folderId: string, updates: Partial<DmsFolder>) => {
+    setFolders((prev) =>
+      prev.map((f) => (f.id === folderId ? { ...f, ...updates } : f))
+    );
+    logActivity('KEMASKINI_FOLDER', undefined, undefined, `Mengemaskini tetapan folder #${folderId}.`);
+    showToast('Folder Dikemaskini', 'Maklumat folder berjaya disimpan.', 'success');
+  };
+
+  const handleDeleteFolder = (folderId: string) => {
+    const targetFolder = folders.find((f) => f.id === folderId);
+    setFolders((prev) => prev.filter((f) => f.id !== folderId));
+    setDocuments((prev) =>
+      prev.map((d) => (d.folderId === folderId ? { ...d, folderId: null } : d))
+    );
+    logActivity('PADAM_FOLDER', undefined, undefined, `Memadam folder "${targetFolder?.name || folderId}". Dokumen dialihkan ke utama.`);
+    showToast('Folder Dipadam', `Folder "${targetFolder?.name || folderId}" dipadam. Dokumen dialihkan ke utama.`, 'info');
+  };
+
+  const handleMoveDocumentToFolder = (docId: string, targetFolderId: string | null) => {
+    const targetDoc = documents.find((d) => d.id === docId);
+    const targetFolder = targetFolderId ? folders.find((f) => f.id === targetFolderId) : null;
+    setDocuments((prev) =>
+      prev.map((d) => (d.id === docId ? { ...d, folderId: targetFolderId, updatedAt: new Date().toISOString() } : d))
+    );
+    logActivity(
+      'PINDAH_DOKUMEN_FOLDER',
+      docId,
+      targetDoc?.title,
+      `Memindahkan dokumen ke "${targetFolder ? targetFolder.name : 'ArkaDrive Utama'}".`
+    );
+  };
+
+  const handleToggleOfflineAvailable = (docId: string, available: boolean) => {
+    const targetDoc = documents.find((d) => d.id === docId);
+    setDocuments((prev) =>
+      prev.map((d) => (d.id === docId ? { ...d, offlineAvailable: available } : d))
+    );
+    if (available) {
+      logActivity(
+        'SEGERAK_LUAR_TALIAN',
+        docId,
+        targetDoc?.title,
+        `Dokumen dicache ke dalam storan peranti untuk penyuntingan luar talian.`
+      );
+      showToast('Tersedia Luar Talian', `"${targetDoc?.title || 'Dokumen'}" sedia untuk disunting luar talian.`, 'success');
+    } else {
+      showToast('Akses Luar Talian Dinyahaktifkan', `Dokumen kini memerlukan sambungan internet.`, 'info');
+    }
   };
 
   const selectedDoc = documents.find((d) => d.id === selectedDocId) || null;
@@ -792,6 +1261,8 @@ export default function App() {
           setIsEditorModalOpen(true);
         }}
         pendingSyncCount={pendingSyncQueue.length}
+        storageConfig={storageConfig}
+        onOpenStorageSetup={() => setIsStorageSetupOpen(true)}
       />
 
       {/* Offline Sync Banner Notification */}
@@ -821,13 +1292,17 @@ export default function App() {
               {currentTab === 'documents'
                 ? selectedDoc
                   ? `Fail: ${selectedDoc.title.substring(0, 28)}...`
+                  : docViewStyle === 'drive'
+                  ? 'Paparan Folder (Google Drive)'
                   : 'Dokumen & Paper'
+                : currentTab === 'groups'
+                ? 'Pengurusan Kumpulan Pengguna & Matriks Hak Cipta'
                 : currentTab === 'categories'
                 ? 'Pengurusan Kategori Fail & Paper'
                 : currentTab === 'users'
                 ? 'Pengurusan Pengguna (No. Perkhidmatan)'
                 : currentTab === 'organization'
-                ? 'Hierarki Jabatan & Unit'
+                ? 'Modul Jabatan & Unit'
                 : 'Analitik Produktiviti & Log'}
             </span>
           </div>
@@ -838,6 +1313,12 @@ export default function App() {
             availableUsers={users}
             onSwitchUser={(user) => {
               setCurrentUser(user);
+              // Reset to documents if the new role cannot access the current active tab
+              if (user.role === 'viewer' && ['categories', 'groups', 'users', 'organization'].includes(currentTab)) {
+                setCurrentTab('documents');
+              } else if (user.role === 'editor' && ['categories', 'groups', 'users'].includes(currentTab)) {
+                setCurrentTab('documents');
+              }
               logActivity(
                 'KEMASKINI_PERANAN',
                 undefined,
@@ -888,26 +1369,95 @@ export default function App() {
                 onShowToast={showToast}
               />
             ) : (
-              <DocumentList
-                documents={documents}
-                categories={categories}
-                currentUser={currentUser}
-                onSelectDocument={(doc) => setSelectedDocId(doc.id)}
-                onDeleteDocument={handleDeleteDocument}
-                onExportPDF={(selectedDocs) => {
-                  const targetDocs = selectedDocs || documents;
-                  exportDocumentsReportPDF(targetDocs, currentUser.displayName);
-                  showToast('Eksport PDF Selesai', `${targetDocs.length} dokumen dieksport ke PDF.`, 'success');
-                }}
-                onExportCSV={(selectedDocs) => {
-                  const targetDocs = selectedDocs || documents;
-                  exportDocumentsToCSV(targetDocs);
-                  showToast('Eksport CSV Selesai', `${targetDocs.length} rekod dieksport ke CSV.`, 'success');
-                }}
-                onShowToast={showToast}
-              />
+              <div className="space-y-5">
+                {/* View Switcher: Standard Table / Cards vs Google Drive Folder View */}
+                <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
+                  <div className="flex items-center gap-1.5 p-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xs">
+                    <button
+                      onClick={() => setDocViewStyle('standard')}
+                      className={`flex items-center gap-2 px-3 py-1.5 text-xs rounded-lg font-medium transition-colors ${
+                        docViewStyle === 'standard'
+                          ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-xs'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                      }`}
+                    >
+                      <FileText className="w-3.5 h-3.5" />
+                      <span>Senarai Standard (Jadual & Kad)</span>
+                    </button>
+                    <button
+                      onClick={() => setDocViewStyle('drive')}
+                      className={`flex items-center gap-2 px-3 py-1.5 text-xs rounded-lg font-medium transition-colors ${
+                        docViewStyle === 'drive'
+                          ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-xs'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                      }`}
+                    >
+                      <Folder className="w-3.5 h-3.5 text-amber-500" />
+                      <span>Paparan Folder (Google Drive)</span>
+                    </button>
+                  </div>
+
+                  <span className="text-xs text-slate-500 font-medium hidden sm:inline">
+                    {docViewStyle === 'drive'
+                      ? 'Navigasi folder hierarki, sub-folder & penugasan kumpulan'
+                      : 'Carian pantas, tapisan kategori & kronologi lengkap'}
+                  </span>
+                </div>
+
+                {docViewStyle === 'standard' ? (
+                  <DocumentList
+                    documents={documents}
+                    categories={categories}
+                    currentUser={currentUser}
+                    onSelectDocument={(doc) => setSelectedDocId(doc.id)}
+                    onDeleteDocument={handleDeleteDocument}
+                    onExportPDF={(selectedDocs) => {
+                      const targetDocs = selectedDocs || documents;
+                      exportDocumentsReportPDF(targetDocs, currentUser.displayName);
+                      showToast('Eksport PDF Selesai', `${targetDocs.length} dokumen dieksport ke PDF.`, 'success');
+                    }}
+                    onExportCSV={(selectedDocs) => {
+                      const targetDocs = selectedDocs || documents;
+                      exportDocumentsToCSV(targetDocs);
+                      showToast('Eksport CSV Selesai', `${targetDocs.length} rekod dieksport ke CSV.`, 'success');
+                    }}
+                    onShowToast={showToast}
+                  />
+                ) : (
+                  <DriveFolderView
+                    folders={folders}
+                    documents={documents}
+                    groups={groups}
+                    users={users}
+                    currentUser={currentUser}
+                    onSelectDocument={(doc) => setSelectedDocId(doc.id)}
+                    onOpenCreateDocumentModal={(targetFolderId) => {
+                      setEditingDoc(null);
+                      setIsEditorModalOpen(true);
+                    }}
+                    onCreateFolder={handleCreateFolder}
+                    onUpdateFolder={handleUpdateFolder}
+                    onDeleteFolder={handleDeleteFolder}
+                    onMoveDocumentToFolder={handleMoveDocumentToFolder}
+                    onToggleOfflineAvailable={handleToggleOfflineAvailable}
+                    onShowToast={showToast}
+                  />
+                )}
+              </div>
             )}
           </>
+        )}
+
+        {currentTab === 'groups' && (
+          <UserGroupModule
+            groups={groups}
+            users={users}
+            currentUser={currentUser}
+            onCreateGroup={handleCreateGroup}
+            onUpdateGroup={handleUpdateGroup}
+            onDeleteGroup={handleDeleteGroup}
+            onShowToast={showToast}
+          />
         )}
 
         {currentTab === 'categories' && (
@@ -929,7 +1479,7 @@ export default function App() {
             currentUser={currentUser}
             onCreateUser={handleCreateUser}
             onUpdateUser={handleUpdateUser}
-            onLoginWithServiceNumber={handleLoginWithServiceNumber}
+            onLoginWithCredentials={handleLoginWithCredentials}
             onShowToast={showToast}
           />
         )}
@@ -938,10 +1488,16 @@ export default function App() {
           <OrganizationModule
             departments={departments}
             users={users}
+            documents={documents}
             currentUser={currentUser}
             onCreateDepartment={handleCreateDepartment}
+            onUpdateDepartment={handleUpdateDepartment}
+            onDeleteDepartment={handleDeleteDepartment}
             onCreateUnit={handleCreateUnit}
+            onUpdateUnit={handleUpdateUnit}
+            onDeleteUnit={handleDeleteUnit}
             onUpdateUserRole={handleUpdateUserRole}
+            onShowToast={showToast}
           />
         )}
 
@@ -987,7 +1543,22 @@ export default function App() {
         currentUser={currentUser}
         departments={departments}
         categories={categories}
+        folders={folders}
+        groups={groups}
+        users={users}
         isOnline={isOnline}
+        storageConfig={storageConfig}
+        onOpenStorageSetup={() => setIsStorageSetupOpen(true)}
+        onShowToast={showToast}
+      />
+
+      {/* Google Cloud Storage Setup Modal */}
+      <GoogleStorageSetupModal
+        isOpen={isStorageSetupOpen}
+        onClose={() => setIsStorageSetupOpen(false)}
+        storageConfig={storageConfig}
+        currentUser={currentUser}
+        onConfigSaved={(updated) => setStorageConfig(updated)}
         onShowToast={showToast}
       />
 

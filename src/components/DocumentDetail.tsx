@@ -11,6 +11,7 @@ import {
   DocumentRevision,
   PaperStatus,
   DocumentWorkflowStep,
+  hasClearance,
 } from '../types/dms';
 import {
   ArrowLeft,
@@ -37,6 +38,8 @@ import {
   ArrowRight,
   AlertCircle,
   UserCheck,
+  File,
+  ExternalLink,
 } from 'lucide-react';
 import { decryptTextE2EE } from '../lib/crypto';
 import { formatBytes } from '../lib/imageCompressor';
@@ -70,6 +73,7 @@ const PAPER_STATUS_OPTIONS: PaperStatus[] = [
   'Semakan Jawatankuasa MPC/Tender',
   'Diluluskan',
   'Pindaan Diperlukan',
+  'Simpanan / Rujukan',
   'Selesai & Diarkibkan',
 ];
 
@@ -117,13 +121,19 @@ export const DocumentDetail: React.FC<DocumentDetailProps> = ({
   const [stepNotes, setStepNotes] = useState('');
 
   // Access check
-  const isConfidential = doc.isConfidential;
+  const isConfidential = Boolean(
+    doc.isConfidential ||
+    doc.clearanceRequired === 'SULIT' ||
+    doc.clearanceRequired === 'P&C' ||
+    doc.clearanceRequired === 'RAHSIA_BESAR'
+  );
+  const requiredClearance = doc.clearanceRequired || (isConfidential ? 'SULIT' : 'BIASA');
   const hasSecurityClearance =
     currentUser.role === 'admin' ||
-    !isConfidential ||
+    doc.authorId === currentUser.uid ||
     (doc.allowedUsers && doc.allowedUsers.includes(currentUser.uid)) ||
-    currentUser.clearanceLevel === 'RAHSIA_BESAR' ||
-    (currentUser.clearanceLevel === 'SULIT' && doc.clearanceRequired !== 'RAHSIA_BESAR');
+    (!isConfidential && (!doc.clearanceRequired || doc.clearanceRequired === 'BIASA')) ||
+    hasClearance(currentUser.clearanceLevel, requiredClearance, currentUser.role);
 
   // Reading Stats
   const activeContentText = decryptedContent || doc.content;
@@ -199,15 +209,17 @@ export const DocumentDetail: React.FC<DocumentDetailProps> = ({
 
     const newStep = {
       stage: stepStage.trim(),
-      handledBy: `${currentUser.displayName} (No. ${currentUser.serviceNumber})`,
-      departmentName: stepDepartment,
+      handledBy: `${currentUser.displayName} (No. ${currentUser.serviceNumber || '882104'})`,
+      departmentName: `${stepDepartment} (${currentUser.unitName || 'Unit Operasi'})`,
       date: new Date().toLocaleDateString('ms-MY', {
         day: '2-digit',
         month: '2-digit',
         year: 'numeric',
       }) + ' ' + new Date().toLocaleTimeString('ms-MY', { hour: '2-digit', minute: '2-digit' }),
       status: 'selesai' as const,
-      notes: stepNotes.trim() || 'Status aliran kerja dikemaskini.',
+      notes: stepNotes.trim() || `Status dikemaskini daripada "${doc.paperStatus}" kepada "${targetPaperStatus}".`,
+      previousStatus: doc.paperStatus,
+      newStatus: targetPaperStatus,
     };
 
     onUpdatePaperStatus(doc.id, targetPaperStatus, newStep);
@@ -226,6 +238,8 @@ export const DocumentDetail: React.FC<DocumentDetailProps> = ({
         return 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900';
       case 'Pindaan Diperlukan':
         return 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-900';
+      case 'Simpanan / Rujukan':
+        return 'bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-400 border border-purple-200 dark:border-purple-900';
       case 'Pengesahan Kewangan':
       case 'Semakan Jawatankuasa MPC/Tender':
         return 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-900';
@@ -331,12 +345,12 @@ export const DocumentDetail: React.FC<DocumentDetailProps> = ({
           </div>
           <div>
             <h3 className="text-base font-bold text-rose-900 dark:text-rose-200">
-              AKSES DISEKAT: KLASIFIKASI {doc.clearanceRequired}
+              AKSES DISEKAT: KLASIFIKASI {doc.clearanceRequired === 'RAHSIA_BESAR' ? 'P&C' : doc.clearanceRequired}
             </h3>
             <p className="text-xs text-rose-700 dark:text-rose-400 mt-1 max-w-md mx-auto leading-relaxed">
               Anda tidak mempunyai tapisan keselamatan yang mencukupi untuk membuka fail ini. Tapisan anda:{' '}
-              <strong>{currentUser.clearanceLevel}</strong>, dokumen memerlukan tahap{' '}
-              <strong>{doc.clearanceRequired}</strong>.
+              <strong>{currentUser.clearanceLevel === 'RAHSIA_BESAR' ? 'P&C' : currentUser.clearanceLevel}</strong>, dokumen memerlukan tahap{' '}
+              <strong>{doc.clearanceRequired === 'RAHSIA_BESAR' ? 'P&C' : doc.clearanceRequired}</strong>.
             </p>
           </div>
           <button
@@ -406,36 +420,94 @@ export const DocumentDetail: React.FC<DocumentDetailProps> = ({
               )}
             </div>
 
-            {/* Compressed Image Preview */}
+            {/* Attachment Preview (PDF, Office, Image) */}
             {doc.attachmentUrl && (
-              <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 space-y-3 shadow-xs">
-                <div className="flex items-center justify-between">
+              <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 space-y-4 shadow-xs">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
                   <div className="flex items-center gap-2">
-                    <ImageIcon className="w-4 h-4 text-blue-600" />
-                    <span className="text-xs font-semibold text-slate-900 dark:text-white">
-                      Lampiran Imej Dimampatkan Automatik
-                    </span>
+                    {(doc.attachmentType?.includes('pdf') || doc.attachmentName?.toLowerCase().endsWith('.pdf')) ? (
+                      <span className="p-1.5 rounded-lg bg-red-100 dark:bg-red-950 text-red-600">
+                        <FileText className="w-4 h-4" />
+                      </span>
+                    ) : doc.attachmentType?.startsWith('image/') ? (
+                      <span className="p-1.5 rounded-lg bg-amber-100 dark:bg-amber-950 text-amber-600">
+                        <ImageIcon className="w-4 h-4" />
+                      </span>
+                    ) : (
+                      <span className="p-1.5 rounded-lg bg-blue-100 dark:bg-blue-950 text-blue-600">
+                        <File className="w-4 h-4" />
+                      </span>
+                    )}
+                    <div>
+                      <span className="text-xs font-semibold text-slate-900 dark:text-white block">
+                        {doc.attachmentName || 'Lampiran Dokumen Utama'}
+                      </span>
+                      <span className="text-[10px] text-slate-500 font-mono">
+                        {doc.attachmentType || 'Fail Dokumen'}
+                        {doc.attachmentSizeCompressed && ` · ${formatBytes(doc.attachmentSizeCompressed)}`}
+                      </span>
+                    </div>
                   </div>
-                  {doc.attachmentSizeOriginal && doc.attachmentSizeCompressed && (
-                    <span className="text-[11px] font-mono font-semibold text-emerald-600 dark:text-emerald-400">
-                      {formatBytes(doc.attachmentSizeOriginal)} → {formatBytes(doc.attachmentSizeCompressed)} (Jimat{' '}
-                      {Math.round(
-                        ((doc.attachmentSizeOriginal - doc.attachmentSizeCompressed) /
-                          doc.attachmentSizeOriginal) *
-                          100
-                      )}
-                      %)
-                    </span>
-                  )}
+
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {doc.attachmentSizeOriginal && doc.attachmentSizeCompressed && doc.attachmentSizeOriginal > doc.attachmentSizeCompressed && (
+                      <span className="text-[11px] font-mono font-semibold text-emerald-600 dark:text-emerald-400">
+                        {formatBytes(doc.attachmentSizeOriginal)} → {formatBytes(doc.attachmentSizeCompressed)} (Jimat{' '}
+                        {Math.round(
+                          ((doc.attachmentSizeOriginal - doc.attachmentSizeCompressed) /
+                            doc.attachmentSizeOriginal) *
+                            100
+                        )}%)
+                      </span>
+                    )}
+                    <a
+                      href={doc.attachmentUrl}
+                      download={doc.attachmentName || 'lampiran_dokumen'}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 text-white text-xs font-semibold rounded-lg shadow-xs transition-colors"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Muat Turun Fail</span>
+                    </a>
+                  </div>
                 </div>
 
-                <div className="rounded-lg overflow-hidden border border-slate-200 dark:border-slate-800 max-h-96 flex items-center justify-center bg-slate-950">
-                  <img
-                    src={doc.attachmentUrl}
-                    alt={doc.attachmentName || 'Lampiran Dokumen'}
-                    className="max-h-96 w-auto object-contain"
-                  />
-                </div>
+                {(doc.attachmentType?.includes('pdf') || doc.attachmentName?.toLowerCase().endsWith('.pdf') || doc.attachmentUrl.startsWith('data:application/pdf')) ? (
+                  <div className="space-y-3">
+                    <div className="rounded-lg overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-900 shadow-inner">
+                      <iframe
+                        src={doc.attachmentUrl}
+                        className="w-full h-[520px] rounded-lg bg-white"
+                        title={doc.attachmentName || 'Paparan PDF'}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between text-xs text-slate-500 bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-lg">
+                      <span>Paparan terus fail PDF rasmi. Sekiranya tidak muncul pada pelayar anda, klik butang muat turun.</span>
+                      <a
+                        href={doc.attachmentUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-blue-600 hover:underline font-semibold flex items-center gap-1 shrink-0 ml-2"
+                      >
+                        <span>Buka Penuh</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </div>
+                  </div>
+                ) : doc.attachmentType?.startsWith('image/') || doc.attachmentUrl.startsWith('data:image/') ? (
+                  <div className="rounded-lg overflow-hidden border border-slate-200 dark:border-slate-800 max-h-96 flex items-center justify-center bg-slate-950">
+                    <img
+                      src={doc.attachmentUrl}
+                      alt={doc.attachmentName || 'Lampiran Dokumen'}
+                      className="max-h-96 w-auto object-contain"
+                    />
+                  </div>
+                ) : (
+                  <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                    <div className="text-xs text-slate-600 dark:text-slate-300">
+                      Fail lampiran sedia untuk dimuat turun dan disemak pada peranti anda.
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -507,7 +579,13 @@ export const DocumentDetail: React.FC<DocumentDetailProps> = ({
                   onMouseUp={handleTextSelection}
                   className="prose dark:prose-invert max-w-none text-xs sm:text-sm text-slate-800 dark:text-slate-200 leading-relaxed font-sans whitespace-pre-wrap select-text p-2 rounded hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors"
                 >
-                  {decryptedContent || doc.content}
+                  {(decryptedContent || doc.content)?.trim() ? (
+                    decryptedContent || doc.content
+                  ) : (
+                    <div className="text-slate-500 italic p-4 bg-slate-50 dark:bg-slate-800/40 rounded-lg text-center border border-dashed border-slate-300 dark:border-slate-700">
+                      Tiada teks manual dimasukkan. Sila rujuk fail lampiran utama yang disertakan di bahagian atas untuk menyemak dokumen.
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -624,6 +702,14 @@ export const DocumentDetail: React.FC<DocumentDetailProps> = ({
                             <p className="text-[11px] text-slate-500">
                               {step.handledBy} · <strong className="text-slate-700 dark:text-slate-300">{step.departmentName}</strong>
                             </p>
+
+                            {step.previousStatus && step.newStatus && step.previousStatus !== step.newStatus && (
+                              <div className="flex items-center gap-1.5 text-[10px] font-mono font-semibold py-1 px-2 rounded bg-blue-50/70 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-900">
+                                <span>{step.previousStatus}</span>
+                                <span>→</span>
+                                <span>{step.newStatus}</span>
+                              </div>
+                            )}
 
                             <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed font-sans mt-1">
                               {step.notes}

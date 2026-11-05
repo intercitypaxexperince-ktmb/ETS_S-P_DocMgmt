@@ -10,6 +10,7 @@ import {
   UserProfile,
   CustomCategory,
   PaperStatus,
+  hasClearance,
 } from '../types/dms';
 import {
   Search,
@@ -33,6 +34,8 @@ import {
   User,
   Clock,
   GitBranch,
+  Shield,
+  FileCheck,
 } from 'lucide-react';
 import { formatBytes } from '../lib/imageCompressor';
 
@@ -64,6 +67,7 @@ const PAPER_STATUS_OPTIONS: ('Semua' | PaperStatus)[] = [
   'Semakan Jawatankuasa MPC/Tender',
   'Diluluskan',
   'Pindaan Diperlukan',
+  'Simpanan / Rujukan',
   'Selesai & Diarkibkan',
 ];
 
@@ -99,17 +103,38 @@ export const DocumentList: React.FC<DocumentListProps> = ({
     return Array.from(set).slice(0, 15);
   }, [documents]);
 
-  // Filtered and sorted documents
+  // Filtered and sorted documents with strict clearance-based visibility
   const filteredDocuments = useMemo(() => {
     let result = documents.filter((doc) => {
+      // KAWALAN KESELAMATAN KETAT:
+      // Fail sulit dan P&C HANYA akan dipaparkan dalam senarai berdasarkan akses level pengguna
+      const isRestrictedDoc =
+        doc.isConfidential ||
+        doc.clearanceRequired === 'SULIT' ||
+        doc.clearanceRequired === 'P&C' ||
+        (doc.clearanceRequired as string) === 'RAHSIA_BESAR';
+
+      if (isRestrictedDoc) {
+        const requiredLevel = doc.clearanceRequired || (doc.isConfidential ? 'SULIT' : 'BIASA');
+        const userHasClearance =
+          hasClearance(currentUser.clearanceLevel, requiredLevel, currentUser.role) ||
+          doc.authorId === currentUser.uid ||
+          (doc.allowedUsers && doc.allowedUsers.includes(currentUser.uid));
+
+        if (!userHasClearance) {
+          // Dokumen terperingkat disembunyikan sepenuhnya dari senarai untuk pengguna tanpa permit
+          return false;
+        }
+      }
+
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
-        const matchesTitle = doc.title.toLowerCase().includes(q);
-        const matchesSummary = doc.summary?.toLowerCase().includes(q);
-        const matchesAuthor = doc.authorName.toLowerCase().includes(q);
-        const matchesCreatorNum = doc.creatorServiceNumber?.toLowerCase().includes(q);
-        const matchesTags = doc.tags?.some((t) => t.toLowerCase().includes(q));
-        const matchesCategory = doc.category.toLowerCase().includes(q);
+        const matchesTitle = (doc.title || '').toLowerCase().includes(q);
+        const matchesSummary = (doc.summary || '').toLowerCase().includes(q);
+        const matchesAuthor = (doc.authorName || '').toLowerCase().includes(q);
+        const matchesCreatorNum = (doc.creatorServiceNumber || '').toLowerCase().includes(q);
+        const matchesTags = doc.tags?.some((t) => (t || '').toLowerCase().includes(q));
+        const matchesCategory = (doc.category || '').toLowerCase().includes(q);
         if (!matchesTitle && !matchesSummary && !matchesAuthor && !matchesCreatorNum && !matchesTags && !matchesCategory) {
           return false;
         }
@@ -131,8 +156,12 @@ export const DocumentList: React.FC<DocumentListProps> = ({
         return false;
       }
 
-      if (securityFilter === 'biasa' && doc.isConfidential) return false;
-      if (securityFilter === 'sulit' && !doc.isConfidential) return false;
+      if (securityFilter === 'biasa' && (doc.isConfidential || doc.clearanceRequired === 'SULIT' || doc.clearanceRequired === 'P&C')) {
+        return false;
+      }
+      if (securityFilter === 'sulit' && !doc.isConfidential && doc.clearanceRequired !== 'SULIT' && doc.clearanceRequired !== 'P&C') {
+        return false;
+      }
       if (securityFilter === 'e2ee' && !doc.isEncrypted) return false;
 
       return true;
@@ -155,7 +184,19 @@ export const DocumentList: React.FC<DocumentListProps> = ({
     });
 
     return result;
-  }, [documents, searchQuery, selectedCategory, selectedTaskCategory, selectedPaperStatus, selectedTag, securityFilter, sortBy]);
+  }, [
+    documents,
+    searchQuery,
+    selectedCategory,
+    selectedTaskCategory,
+    selectedPaperStatus,
+    selectedTag,
+    securityFilter,
+    sortBy,
+    currentUser.clearanceLevel,
+    currentUser.role,
+    currentUser.uid,
+  ]);
 
   const handleToggleSelectDoc = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -192,6 +233,8 @@ export const DocumentList: React.FC<DocumentListProps> = ({
         return 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900';
       case 'Pindaan Diperlukan':
         return 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-900';
+      case 'Simpanan / Rujukan':
+        return 'bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-400 border border-purple-200 dark:border-purple-900';
       case 'Pengesahan Kewangan':
       case 'Semakan Jawatankuasa MPC/Tender':
         return 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-900';
@@ -386,7 +429,7 @@ export const DocumentList: React.FC<DocumentListProps> = ({
               }`}
             >
               <Lock className="w-3 h-3 text-rose-500" />
-              <span>Fail Sulit</span>
+              <span>Sulit & P&C</span>
             </button>
             <button
               onClick={() => setSecurityFilter('e2ee')}
@@ -455,13 +498,24 @@ export const DocumentList: React.FC<DocumentListProps> = ({
                           />
                         </td>
                         <td className="px-4 py-3.5 max-w-sm">
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
                             <span className="font-semibold text-slate-900 dark:text-white hover:text-blue-600 transition-colors line-clamp-1">
                               {doc.title}
                             </span>
                             {isConfidential && (
-                              <span className="text-[10px] text-rose-600 font-bold bg-rose-50 dark:bg-rose-950/60 px-1.5 py-0.2 rounded border border-rose-200 shrink-0">
-                                {doc.clearanceRequired}
+                              <span className="text-[10px] text-rose-700 dark:text-rose-300 font-bold bg-rose-50 dark:bg-rose-950/80 px-1.5 py-0.5 rounded border border-rose-300 dark:border-rose-800 shrink-0">
+                                {doc.clearanceRequired === 'RAHSIA_BESAR' ? 'P&C' : doc.clearanceRequired}
+                              </span>
+                            )}
+                            {doc.attachmentUrl && (
+                              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 flex items-center gap-1 ${
+                                (doc.attachmentType?.includes('pdf') || doc.attachmentName?.toLowerCase().endsWith('.pdf'))
+                                  ? 'bg-red-100 text-red-700 dark:bg-red-950/80 dark:text-red-300 border border-red-300'
+                                  : doc.attachmentType?.startsWith('image/')
+                                  ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300 border border-amber-300'
+                                  : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-300'
+                              }`}>
+                                {(doc.attachmentType?.includes('pdf') || doc.attachmentName?.toLowerCase().endsWith('.pdf')) ? 'PDF' : doc.attachmentType?.startsWith('image/') ? 'Imej' : 'Fail'}
                               </span>
                             )}
                           </div>
@@ -570,8 +624,13 @@ export const DocumentList: React.FC<DocumentListProps> = ({
                   </div>
                   <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                     {isConfidential && (
-                      <span className="text-[10px] font-bold text-rose-600 bg-rose-50 px-1.5 py-0.2 rounded border border-rose-200">
-                        {doc.clearanceRequired}
+                      <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-300">
+                        {doc.clearanceRequired === 'RAHSIA_BESAR' ? 'P&C' : doc.clearanceRequired}
+                      </span>
+                    )}
+                    {doc.attachmentUrl && (
+                      <span className="text-[10px] font-bold text-red-700 bg-red-50 px-1.5 py-0.5 rounded border border-red-300">
+                        {(doc.attachmentType?.includes('pdf') || doc.attachmentName?.toLowerCase().endsWith('.pdf')) ? 'PDF' : 'Fail'}
                       </span>
                     )}
                     <button onClick={() => setPreviewDoc(doc)} className="p-1 hover:text-slate-900">

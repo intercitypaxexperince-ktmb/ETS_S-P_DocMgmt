@@ -8,7 +8,7 @@ import { getAuth, GoogleAuthProvider, signInWithPopup, signOut as fbSignOut } fr
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
-const app = !getApps().length ? initializeApp(firebaseConfig) : getApps()[0];
+export const app = !getApps().length ? initializeApp(firebaseConfig) : getApps()[0];
 
 /* CRITICAL: The app will break without passing firestoreDatabaseId */
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);

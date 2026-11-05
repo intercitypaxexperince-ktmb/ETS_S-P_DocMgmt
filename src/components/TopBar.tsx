@@ -4,8 +4,8 @@
  */
 
 import React from 'react';
-import { UserProfile } from '../types/dms';
-import { Plus, Bell, Wifi, WifiOff } from 'lucide-react';
+import { UserProfile, GoogleStorageConfig, canManageUsers } from '../types/dms';
+import { Plus, Bell, Wifi, WifiOff, Cloud } from 'lucide-react';
 
 interface TopBarProps {
   currentTab: string;
@@ -16,6 +16,8 @@ interface TopBarProps {
   onOpenNotifications: () => void;
   onOpenCreateModal: () => void;
   pendingSyncCount: number;
+  storageConfig?: GoogleStorageConfig;
+  onOpenStorageSetup?: () => void;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -27,6 +29,8 @@ export const TopBar: React.FC<TopBarProps> = ({
   onOpenNotifications,
   onOpenCreateModal,
   pendingSyncCount,
+  storageConfig,
+  onOpenStorageSetup,
 }) => {
   return (
     <header className="sticky top-0 z-40 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 transition-colors">
@@ -61,36 +65,59 @@ export const TopBar: React.FC<TopBarProps> = ({
           >
             Dokumen & Paper
           </button>
-          <button
-            onClick={() => onSelectTab('categories')}
-            className={`whitespace-nowrap shrink-0 transition-colors ${
-              currentTab === 'categories'
-                ? 'text-slate-950 dark:text-white font-semibold border-b-2 border-slate-900 dark:border-white pb-1 -mb-1'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white'
-            }`}
-          >
-            Kategori Fail
-          </button>
-          <button
-            onClick={() => onSelectTab('users')}
-            className={`whitespace-nowrap shrink-0 transition-colors ${
-              currentTab === 'users'
-                ? 'text-slate-950 dark:text-white font-semibold border-b-2 border-slate-900 dark:border-white pb-1 -mb-1'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white'
-            }`}
-          >
-            Pengurusan Pengguna
-          </button>
-          <button
-            onClick={() => onSelectTab('organization')}
-            className={`whitespace-nowrap shrink-0 transition-colors ${
-              currentTab === 'organization'
-                ? 'text-slate-950 dark:text-white font-semibold border-b-2 border-slate-900 dark:border-white pb-1 -mb-1'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white'
-            }`}
-          >
-            Hierarki Jabatan
-          </button>
+
+          {canManageUsers(currentUser) && (
+            <button
+              onClick={() => onSelectTab('categories')}
+              className={`whitespace-nowrap shrink-0 transition-colors ${
+                currentTab === 'categories'
+                  ? 'text-slate-950 dark:text-white font-semibold border-b-2 border-slate-900 dark:border-white pb-1 -mb-1'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white'
+              }`}
+            >
+              Kategori Fail
+            </button>
+          )}
+
+          {canManageUsers(currentUser) && (
+            <button
+              onClick={() => onSelectTab('groups')}
+              className={`whitespace-nowrap shrink-0 transition-colors ${
+                currentTab === 'groups'
+                  ? 'text-slate-950 dark:text-white font-semibold border-b-2 border-slate-900 dark:border-white pb-1 -mb-1'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white'
+              }`}
+            >
+              Kumpulan Pengguna
+            </button>
+          )}
+
+          {canManageUsers(currentUser) && (
+            <button
+              onClick={() => onSelectTab('users')}
+              className={`whitespace-nowrap shrink-0 transition-colors ${
+                currentTab === 'users'
+                  ? 'text-slate-950 dark:text-white font-semibold border-b-2 border-slate-900 dark:border-white pb-1 -mb-1'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white'
+              }`}
+            >
+              Pengurusan Pengguna
+            </button>
+          )}
+
+          {currentUser.role !== 'viewer' && (
+            <button
+              onClick={() => onSelectTab('organization')}
+              className={`whitespace-nowrap shrink-0 transition-colors ${
+                currentTab === 'organization'
+                  ? 'text-slate-950 dark:text-white font-semibold border-b-2 border-slate-900 dark:border-white pb-1 -mb-1'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white'
+              }`}
+            >
+              Modul Jabatan
+            </button>
+          )}
+
           <button
             onClick={() => onSelectTab('analytics')}
             className={`whitespace-nowrap shrink-0 transition-colors ${
@@ -118,6 +145,19 @@ export const TopBar: React.FC<TopBarProps> = ({
               {isOnline ? (pendingSyncCount > 0 ? `Segerak (${pendingSyncCount})` : 'Awan Aktif') : 'Luar Talian'}
             </span>
           </div>
+
+          {canManageUsers(currentUser) && onOpenStorageSetup && (
+            <button
+              onClick={onOpenStorageSetup}
+              className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition-colors"
+              title="Tetapan Storan Fail & Arkib Google Cloud"
+            >
+              <Cloud className={`w-3.5 h-3.5 ${storageConfig?.isConfigured ? 'text-blue-600 dark:text-blue-400' : 'text-amber-500'}`} />
+              <span className="font-mono text-[11px] whitespace-nowrap">
+                {storageConfig?.isConfigured ? 'G-Storage' : 'Setup Storan'}
+              </span>
+            </button>
+          )}
 
           <button
             onClick={onOpenNotifications}

@@ -12,6 +12,9 @@ import {
   Department,
   CustomCategory,
   PaperStatus,
+  GoogleStorageConfig,
+  DmsFolder,
+  UserGroup,
 } from '../types/dms';
 import {
   X,
@@ -28,9 +31,13 @@ import {
   Trash2,
   Calendar,
   GitBranch,
+  FileCode,
+  FileCheck,
+  Cloud,
 } from 'lucide-react';
-import { compressAndResizeImage, CompressionResult } from '../lib/imageCompressor';
+import { compressAndResizeImage, CompressionResult, formatBytes } from '../lib/imageCompressor';
 import { encryptTextE2EE } from '../lib/crypto';
+import { uploadFileToStorage } from '../lib/storage';
 
 interface DocumentEditorModalProps {
   isOpen: boolean;
@@ -40,8 +47,24 @@ interface DocumentEditorModalProps {
   currentUser: UserProfile;
   departments: Department[];
   categories: CustomCategory[];
+  folders?: DmsFolder[];
+  groups?: UserGroup[];
+  users?: UserProfile[];
+  initialFolderId?: string | null;
   isOnline: boolean;
+  storageConfig?: GoogleStorageConfig;
+  onOpenStorageSetup?: () => void;
   onShowToast: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
+}
+
+interface UploadedAttachment {
+  dataUrl: string;
+  fileName: string;
+  fileType: string;
+  originalSize: number;
+  compressedSize?: number;
+  isImage?: boolean;
+  isPdf?: boolean;
 }
 
 const TASK_CATEGORIES: TaskCategory[] = [
@@ -59,6 +82,7 @@ const PAPER_STATUS_OPTIONS: PaperStatus[] = [
   'Semakan Jawatankuasa MPC/Tender',
   'Diluluskan',
   'Pindaan Diperlukan',
+  'Simpanan / Rujukan',
   'Selesai & Diarkibkan',
 ];
 
@@ -70,7 +94,13 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
   currentUser,
   departments,
   categories,
+  folders = [],
+  groups = [],
+  users = [],
+  initialFolderId = null,
   isOnline,
+  storageConfig,
+  onOpenStorageSetup,
   onShowToast,
 }) => {
   const isEditing = Boolean(initialDoc);
@@ -83,6 +113,12 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
   const [tagsInput, setTagsInput] = useState('');
   const [summary, setSummary] = useState('');
   const [content, setContent] = useState('');
+
+  // Folder & Access Assignment State
+  const [folderId, setFolderId] = useState<string | null>(initialFolderId || null);
+  const [allowedGroups, setAllowedGroups] = useState<string[]>([]);
+  const [allowedUsers, setAllowedUsers] = useState<string[]>([]);
+  const [offlineAvailable, setOfflineAvailable] = useState<boolean>(true);
 
   // Department & Unit
   const [selectedDeptId, setSelectedDeptId] = useState(currentUser.departmentId || 'dept_it');
@@ -99,10 +135,10 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
   // Automated notification trigger
   const [notifyStakeholders, setNotifyStakeholders] = useState(true);
 
-  // Image Upload and Automatic Compressor
-  const [imageResult, setImageResult] = useState<CompressionResult | null>(null);
-  const [isCompressing, setIsCompressing] = useState(false);
-  const [compressError, setCompressError] = useState<string | null>(null);
+  // File & PDF Attachment State
+  const [attachment, setAttachment] = useState<UploadedAttachment | null>(null);
+  const [isProcessingFile, setIsProcessingFile] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -123,8 +159,29 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
       setSelectedDeptId(initialDoc.departmentId || currentUser.departmentId || 'dept_it');
       setSelectedUnitId(initialDoc.unitId || currentUser.unitId || 'unit_cyber_sec');
       setIsConfidential(initialDoc.isConfidential);
-      setClearanceRequired(initialDoc.clearanceRequired || 'BIASA');
+      const rawClearance = initialDoc.clearanceRequired || 'BIASA';
+      setClearanceRequired(rawClearance === 'RAHSIA_BESAR' ? 'P&C' : rawClearance);
       setIsEncrypted(initialDoc.isEncrypted);
+      setFolderId(initialDoc.folderId ?? null);
+      setAllowedGroups(initialDoc.allowedGroups || []);
+      setAllowedUsers(initialDoc.allowedUsers || []);
+      setOfflineAvailable(initialDoc.offlineAvailable ?? true);
+
+      if (initialDoc.attachmentUrl) {
+        const isPdf = initialDoc.attachmentType === 'application/pdf' || initialDoc.attachmentName?.toLowerCase().endsWith('.pdf');
+        const isImage = initialDoc.attachmentType?.startsWith('image/');
+        setAttachment({
+          dataUrl: initialDoc.attachmentUrl,
+          fileName: initialDoc.attachmentName || (isPdf ? 'Dokumen_Paper.pdf' : 'Lampiran_Fail'),
+          fileType: initialDoc.attachmentType || (isPdf ? 'application/pdf' : 'application/octet-stream'),
+          originalSize: initialDoc.attachmentSizeOriginal || 0,
+          compressedSize: initialDoc.attachmentSizeCompressed,
+          isImage,
+          isPdf,
+        });
+      } else {
+        setAttachment(null);
+      }
     } else {
       setTitle('');
       setCategory(categories[0]?.code || 'SOP');
@@ -139,35 +196,109 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
       setIsConfidential(false);
       setClearanceRequired('BIASA');
       setIsEncrypted(false);
-      setImageResult(null);
+      setFolderId(initialFolderId || null);
+      setAllowedGroups([]);
+      setAllowedUsers([]);
+      setOfflineAvailable(true);
+      setAttachment(null);
     }
-  }, [initialDoc, isOpen, categories]);
+  }, [initialDoc, isOpen, categories, initialFolderId]);
 
   if (!isOpen) return null;
 
-  const processImageFile = async (file: File) => {
-    if (!file.type.startsWith('image/')) {
-      setCompressError('Hanya fail imej disokong (PNG, JPG, WebP).');
-      return;
-    }
-
-    setIsCompressing(true);
-    setCompressError(null);
+  const processFile = async (file: File) => {
+    setIsProcessingFile(true);
+    setUploadError(null);
     try {
-      const result = await compressAndResizeImage(file, 1280, 0.82);
-      setImageResult(result);
-      onShowToast('Imej Dimampatkan', `Penjimatan saiz ${result.savedPercentage}% berjaya dilakukan.`, 'success');
+      if (file.type.startsWith('image/')) {
+        const result = await compressAndResizeImage(file, 1280, 0.82);
+        let finalUrl = result.dataUrl;
+
+        if (storageConfig?.isConfigured && isOnline) {
+          try {
+            const uploaded = await uploadFileToStorage(result.dataUrl, result.fileName, 'image/jpeg');
+            finalUrl = uploaded.url;
+            onShowToast(
+              'Storan Google Cloud',
+              `Imej dimampatkan dan dimuat naik ke baldi Google Storage (${result.savedPercentage}% penjimatan saiz).`,
+              'success'
+            );
+          } catch (e) {
+            console.warn('Google Storage upload fallback to local cache:', e);
+          }
+        } else {
+          onShowToast('Imej Dimampatkan', `Penjimatan saiz ${result.savedPercentage}% berjaya dilakukan.`, 'success');
+        }
+
+        setAttachment({
+          dataUrl: finalUrl,
+          fileName: result.fileName,
+          fileType: result.fileType,
+          originalSize: result.originalSize,
+          compressedSize: result.compressedSize,
+          isImage: true,
+          isPdf: false,
+        });
+      } else {
+        // PDF or General Document (Word, Excel, Text, etc.)
+        const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+
+        if (storageConfig?.isConfigured && isOnline) {
+          try {
+            const uploaded = await uploadFileToStorage(file, file.name, file.type || 'application/pdf');
+            setAttachment({
+              dataUrl: uploaded.url,
+              fileName: file.name,
+              fileType: file.type || (isPdf ? 'application/pdf' : 'application/octet-stream'),
+              originalSize: file.size,
+              isImage: false,
+              isPdf,
+            });
+            onShowToast(
+              'Google Storage Awan',
+              `"${file.name}" (${formatBytes(file.size)}) telah dimuat naik ke Google Cloud Storage.`,
+              'success'
+            );
+            return;
+          } catch (e) {
+            console.warn('Direct upload error, falling back to local file reader:', e);
+          }
+        }
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const dataUrl = e.target?.result as string;
+          setAttachment({
+            dataUrl,
+            fileName: file.name,
+            fileType: file.type || (isPdf ? 'application/pdf' : 'application/octet-stream'),
+            originalSize: file.size,
+            isImage: false,
+            isPdf,
+          });
+          onShowToast(
+            isPdf ? 'Fail PDF Dimuat Naik' : 'Fail Dokumen Dimuat Naik',
+            `"${file.name}" (${formatBytes(file.size)}) sedia dilampirkan.`,
+            'success'
+          );
+        };
+        reader.onerror = () => {
+          setUploadError('Gagal membaca fail yang dimuat naik.');
+        };
+        reader.readAsDataURL(file);
+      }
     } catch (err: any) {
-      setCompressError(err.message || 'Gagal memproses imej.');
+      setUploadError(err.message || 'Gagal memproses fail yang dimuat naik.');
     } finally {
-      setIsCompressing(false);
+      setIsProcessingFile(false);
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim() || !content.trim() || !documentDate) {
-      setErrorMessage('Sila lengkapkan tajuk, tarikh dokumen, dan kandungan dokumen.');
+    // Kandungan teks dokumen kini adalah opsional / tidak wajib!
+    if (!title.trim() || !documentDate) {
+      setErrorMessage('Sila lengkapkan sekurang-kurangnya tajuk dokumen dan tarikh dokumen.');
       return;
     }
 
@@ -182,8 +313,10 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
 
       let encryptedPayload: { ciphertext?: string; iv?: string; salt?: string } = {};
 
-      if (isEncrypted) {
-        const { ciphertext, iv, salt } = await encryptTextE2EE(content, passphrase);
+      const textToSave = content.trim();
+
+      if (isEncrypted && textToSave) {
+        const { ciphertext, iv, salt } = await encryptTextE2EE(textToSave, passphrase);
         encryptedPayload = {
           ciphertext,
           iv,
@@ -199,9 +332,15 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
         paperStatus,
         tags,
         summary: summary.trim() || title.trim(),
-        content: isEncrypted ? '[KANDUNGAN TERENKRIPSI DENGAN AES-256-GCM]' : content,
+        content: isEncrypted
+          ? (textToSave ? '[KANDUNGAN TERENKRIPSI DENGAN AES-256-GCM]' : '')
+          : (textToSave || (attachment ? `[Lampiran Fail Rasmi: ${attachment.fileName}]` : '')),
         isConfidential,
         clearanceRequired: isConfidential ? (clearanceRequired === 'BIASA' ? 'SULIT' : clearanceRequired) : 'BIASA',
+        folderId: folderId || null,
+        allowedGroups,
+        allowedUsers,
+        offlineAvailable,
         departmentId: selectedDeptId,
         unitId: selectedUnitId,
         isEncrypted,
@@ -223,7 +362,7 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
           {
             id: `wf_${Date.now()}`,
             stage: 'Disediakan',
-            handledBy: `${currentUser.displayName} (No. ${currentUser.serviceNumber})`,
+            handledBy: `${currentUser.displayName} (No. ${currentUser.serviceNumber || '882104'})`,
             departmentName: currentUser.departmentName,
             date: new Date().toLocaleDateString('ms-MY', { day: '2-digit', month: '2-digit', year: 'numeric' }) + ' ' + new Date().toLocaleTimeString('ms-MY', { hour: '2-digit', minute: '2-digit' }),
             status: 'selesai',
@@ -232,12 +371,18 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
         ];
       }
 
-      if (imageResult) {
-        docPayload.attachmentUrl = imageResult.dataUrl;
-        docPayload.attachmentName = imageResult.fileName;
-        docPayload.attachmentType = imageResult.fileType;
-        docPayload.attachmentSizeOriginal = imageResult.originalSize;
-        docPayload.attachmentSizeCompressed = imageResult.compressedSize;
+      if (attachment) {
+        docPayload.attachmentUrl = attachment.dataUrl;
+        docPayload.attachmentName = attachment.fileName;
+        docPayload.attachmentType = attachment.fileType;
+        docPayload.attachmentSizeOriginal = attachment.originalSize;
+        docPayload.attachmentSizeCompressed = attachment.compressedSize;
+      } else if (isEditing && !attachment) {
+        docPayload.attachmentUrl = undefined;
+        docPayload.attachmentName = undefined;
+        docPayload.attachmentType = undefined;
+        docPayload.attachmentSizeOriginal = undefined;
+        docPayload.attachmentSizeCompressed = undefined;
       }
 
       await onSave(docPayload, notifyStakeholders);
@@ -344,8 +489,8 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
             </div>
           </div>
 
-          {/* Department & Unit Hierarchy */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {/* Department, Unit & Folder Hierarchy */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <label className="block font-semibold text-slate-800 dark:text-slate-200 mb-1">
                 Jabatan Pemilik *
@@ -383,6 +528,24 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
                 ))}
               </select>
             </div>
+
+            <div>
+              <label className="block font-semibold text-slate-800 dark:text-slate-200 mb-1">
+                Folder ArkaDrive
+              </label>
+              <select
+                value={folderId || ''}
+                onChange={(e) => setFolderId(e.target.value ? e.target.value : null)}
+                className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100"
+              >
+                <option value="">📁 ArkaDrive Utama (Luar Folder)</option>
+                {folders.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    📁 {f.name} ({f.clearanceLevel})
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
           {/* Tags & Executive Summary */}
@@ -412,22 +575,24 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
             />
           </div>
 
-          {/* Full Text Content */}
+          {/* Full Text Content (Optional) */}
           <div>
-            <label className="block font-semibold text-slate-800 dark:text-slate-200 mb-1">
-              Kandungan Teks Dokumen *
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="font-semibold text-slate-800 dark:text-slate-200">
+                Kandungan Teks Dokumen <span className="text-slate-400 font-normal">(Pilihan / Tidak Wajib)</span>
+              </label>
+              <span className="text-[11px] text-slate-400">Boleh dikosongkan jika memuat naik fail PDF / lampiran</span>
+            </div>
             <textarea
-              required
-              rows={6}
+              rows={5}
               value={content}
               onChange={(e) => setContent(e.target.value)}
-              placeholder="Tulis kandungan penuh dokumen..."
+              placeholder="Tulis ringkasan perakuan, minit keputusan atau kandungan dokumen (atau kosongkan sekiranya memuat naik fail dokumen PDF penuh)..."
               className="w-full p-3 text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100 font-sans leading-relaxed"
             />
           </div>
 
-          {/* Drag & Drop Image Uploader */}
+          {/* Drag & Drop PDF & File Uploader */}
           <div
             onDragOver={(e) => {
               e.preventDefault();
@@ -438,57 +603,106 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
               e.preventDefault();
               setIsDragging(false);
               const file = e.dataTransfer.files?.[0];
-              if (file) processImageFile(file);
+              if (file) processFile(file);
             }}
             className={`p-4 rounded-xl border-2 border-dashed space-y-2.5 transition-colors ${
               isDragging ? 'border-blue-500 bg-blue-50/50' : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40'
             }`}
           >
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
               <span className="font-semibold text-slate-900 dark:text-white flex items-center gap-2">
-                <ImageIcon className="w-4 h-4 text-blue-600" />
-                <span>Mampatan Imej Automatik Klien</span>
+                <Upload className="w-4 h-4 text-blue-600" />
+                <span>Muat Naik Fail / Dokumen PDF / Kertas Kerja</span>
               </span>
-              <span className="text-[10px] text-slate-400 font-mono">Max 1280px WebP/JPEG</span>
+              <div className="flex items-center gap-2">
+                {storageConfig?.isConfigured ? (
+                  <span className="text-[10px] font-semibold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/60 px-2 py-0.5 rounded border border-blue-200 dark:border-blue-900 flex items-center gap-1">
+                    <Cloud className="w-3 h-3 text-blue-600" />
+                    <span>Google Storage Aktif</span>
+                  </span>
+                ) : onOpenStorageSetup ? (
+                  <button
+                    type="button"
+                    onClick={onOpenStorageSetup}
+                    className="text-[10px] font-semibold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/60 px-2 py-0.5 rounded border border-amber-200 dark:border-amber-900 hover:bg-amber-100 flex items-center gap-1"
+                  >
+                    <Cloud className="w-3 h-3 text-amber-600" />
+                    <span>Setup Google Storage (Kali Pertama) →</span>
+                  </button>
+                ) : null}
+                <span className="text-[10px] text-slate-400 font-mono">PDF, DOCX, XLSX, TXT, Imej</span>
+              </div>
             </div>
 
+            <p className="text-[11px] text-slate-500">
+              Sokongan muat naik fail dokumen rasmi (PDF, Word, Excel) atau imej. Imej akan dimampatkan secara automatik.
+            </p>
+
             <div className="flex items-center gap-3">
-              <label className="cursor-pointer flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-200 font-medium">
-                <Upload className="w-3.5 h-3.5" />
-                <span>Pilih Fail</span>
+              <label className="cursor-pointer flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-200 font-medium hover:bg-slate-50 transition-colors shadow-xs">
+                <Upload className="w-3.5 h-3.5 text-blue-600" />
+                <span>Pilih Fail dari Peranti</span>
                 <input
                   type="file"
-                  accept="image/*"
+                  accept=".pdf, .doc, .docx, .xls, .xlsx, .csv, .txt, image/*"
                   onChange={(e) => {
                     const file = e.target.files?.[0];
-                    if (file) processImageFile(file);
+                    if (file) processFile(file);
                   }}
                   className="hidden"
                 />
               </label>
-              <span className="text-[11px] text-slate-400">atau tarik dan lepas fail imej ke sini.</span>
-              {isCompressing && <span className="text-blue-600 font-mono text-[11px]">Memampat imej...</span>}
+              <span className="text-[11px] text-slate-400">atau tarik dan lepas fail dokumen / PDF ke sini.</span>
+              {isProcessingFile && <span className="text-blue-600 font-mono text-[11px] animate-pulse">Memproses fail...</span>}
             </div>
 
-            {imageResult && (
-              <div className="bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-emerald-200 flex items-center justify-between gap-3 text-xs">
-                <div className="flex items-center gap-2">
-                  <img
-                    src={imageResult.dataUrl}
-                    alt="Pratonton"
-                    className="w-10 h-10 rounded object-cover border"
-                  />
-                  <div>
-                    <p className="font-medium truncate max-w-[200px]">{imageResult.fileName}</p>
-                    <p className="text-[10px] text-emerald-600 font-mono font-semibold">
-                      {imageResult.originalFormatted} → {imageResult.compressedFormatted} (Jimat {imageResult.savedPercentage}%)
+            {uploadError && <p className="text-xs text-rose-500">{uploadError}</p>}
+
+            {/* Uploaded File Preview Badge */}
+            {attachment && (
+              <div className="bg-white dark:bg-slate-900 p-3 rounded-lg border border-slate-200 dark:border-slate-700 flex items-center justify-between gap-3 text-xs shadow-xs">
+                <div className="flex items-center gap-3 min-w-0">
+                  {attachment.isPdf ? (
+                    <div className="w-9 h-9 rounded-lg bg-rose-50 dark:bg-rose-950/60 text-rose-600 flex items-center justify-center shrink-0 border border-rose-200 dark:border-rose-900">
+                      <FileText className="w-5 h-5" />
+                    </div>
+                  ) : attachment.isImage ? (
+                    <img
+                      src={attachment.dataUrl}
+                      alt="Pratonton"
+                      className="w-9 h-9 rounded object-cover border border-slate-200 shrink-0"
+                    />
+                  ) : (
+                    <div className="w-9 h-9 rounded-lg bg-blue-50 dark:bg-blue-950/60 text-blue-600 flex items-center justify-center shrink-0 border border-blue-200 dark:border-blue-900">
+                      <FileCheck className="w-5 h-5" />
+                    </div>
+                  )}
+
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <p className="font-semibold text-slate-900 dark:text-white truncate">{attachment.fileName}</p>
+                      {attachment.isPdf && (
+                        <span className="text-[9px] font-bold px-1.5 py-0.2 bg-rose-100 dark:bg-rose-900/60 text-rose-700 dark:text-rose-300 rounded shrink-0">
+                          PDF
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-slate-500 font-mono">
+                      {formatBytes(attachment.originalSize)}
+                      {attachment.compressedSize && (
+                        <span className="text-emerald-600 dark:text-emerald-400 font-semibold ml-1.5">
+                          → {formatBytes(attachment.compressedSize)} (Dimampatkan)
+                        </span>
+                      )}
                     </p>
                   </div>
                 </div>
+
                 <button
                   type="button"
-                  onClick={() => setImageResult(null)}
-                  className="p-1 text-slate-400 hover:text-rose-600"
+                  onClick={() => setAttachment(null)}
+                  className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                  title="Buang fail lampiran"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
@@ -501,7 +715,7 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
             <div className="flex items-center justify-between">
               <span className="font-semibold text-slate-900 dark:text-white flex items-center gap-2">
                 <Shield className="w-4 h-4 text-rose-600" />
-                <span>Klasifikasi Keselamatan Fail Sulit</span>
+                <span>Klasifikasi Keselamatan Fail Sulit & P&C</span>
               </span>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
@@ -510,7 +724,7 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
                   onChange={(e) => setIsConfidential(e.target.checked)}
                   className="rounded border-slate-300 text-rose-600"
                 />
-                <span className="font-semibold text-rose-700 dark:text-rose-400">Tandai Fail Sulit</span>
+                <span className="font-semibold text-rose-700 dark:text-rose-400">Tandai Fail Sulit / P&C</span>
               </label>
             </div>
 
@@ -524,9 +738,9 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
                   onChange={(e) => setClearanceRequired(e.target.value as ClearanceLevel)}
                   className="w-full px-3 py-1.5 bg-white dark:bg-slate-800 border rounded-lg text-slate-900 dark:text-slate-100"
                 >
-                  <option value="TERHAD">TERHAD (Akses Terhad Pegawai)</option>
-                  <option value="SULIT">SULIT (Pegawai Kanan Sahaja)</option>
-                  <option value="RAHSIA_BESAR">RAHSIA BESAR (Pengarah & Jawatankuasa Induk)</option>
+                  <option value="TERHAD">TERHAD (Akses Terhad Pegawai Dalaman)</option>
+                  <option value="SULIT">SULIT (Klasifikasi Pegawai Kanan Sahaja)</option>
+                  <option value="P&C">P&C (Private & Confidential / Pengarah & Pengurusan Tertinggi)</option>
                 </select>
               </div>
             )}
@@ -558,13 +772,80 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
             </div>
           </div>
 
+          {/* User Groups & Individual Assignment Matrix */}
+          <div className="bg-slate-50 dark:bg-slate-800/40 p-4 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3">
+            <span className="font-semibold text-slate-900 dark:text-white flex items-center gap-2 text-xs">
+              <Shield className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+              <span>Penugasan Akses Kumpulan (Groups) & Individu</span>
+            </span>
+
+            {/* Groups */}
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 block">
+                Tugaskan kepada Kumpulan Pengguna:
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-36 overflow-y-auto">
+                {groups.map((g) => {
+                  const isChecked = allowedGroups.includes(g.id);
+                  return (
+                    <label
+                      key={g.id}
+                      className={`flex items-center gap-2 p-2 rounded-lg border text-xs cursor-pointer transition-colors ${
+                        isChecked
+                          ? 'bg-indigo-50/80 dark:bg-indigo-950/40 border-indigo-500'
+                          : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => {
+                          setAllowedGroups((prev) =>
+                            isChecked ? prev.filter((id) => id !== g.id) : [...prev, g.id]
+                          );
+                        }}
+                        className="rounded text-indigo-600"
+                      />
+                      <div className="min-w-0">
+                        <span className="font-medium text-slate-900 dark:text-white truncate block">
+                          {g.name}
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-mono">
+                          {g.code} · {g.permission}
+                        </span>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Offline Availability Toggle */}
+            <div className="pt-2 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between">
+              <div>
+                <span className="font-medium text-slate-800 dark:text-slate-200 text-xs block">
+                  Simpan untuk Suntingan Luar Talian (Offline Mode)
+                </span>
+                <span className="text-[11px] text-slate-500">
+                  Dokumen akan dimuat turun dan disimpan dalam storan cache peranti untuk akses tanpa sambungan internet.
+                </span>
+              </div>
+              <input
+                type="checkbox"
+                checked={offlineAvailable}
+                onChange={(e) => setOfflineAvailable(e.target.checked)}
+                className="rounded border-slate-300 text-emerald-600 w-4 h-4"
+              />
+            </div>
+          </div>
+
           <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
             <button type="button" onClick={onClose} className="px-4 py-2 text-slate-600 hover:text-slate-900">
               Batal
             </button>
             <button
               type="submit"
-              disabled={isSubmitting || isCompressing}
+              disabled={isSubmitting || isProcessingFile}
               className="px-5 py-2 text-xs font-semibold text-white bg-slate-900 dark:bg-white dark:text-slate-900 rounded-xl hover:opacity-90 disabled:opacity-50"
             >
               {isSubmitting ? 'Menyimpan...' : isEditing ? 'Kemas Kini Dokumen' : 'Simpan & Arkibkan'}
