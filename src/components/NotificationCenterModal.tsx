@@ -37,7 +37,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
             </div>
             <div>
               <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                Pusat Notifikasi Emel Automatik ArkaDMS
+                Pusat Notifikasi Emel Automatik ETS Document Management
               </h3>
               <p className="text-xs text-slate-500">
                 Penghantaran emel automatik untuk insiden keselamatan, kelulusan semakan dan penugasan fail.
@@ -139,7 +139,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
                 {/* Governmental Footer Signoff */}
                 <div className="pt-3 border-t border-slate-100 dark:border-slate-800 text-[11px] text-slate-400 space-y-0.5">
                   <p className="font-medium text-slate-600 dark:text-slate-300">
-                    Sistem Pengurusan Dokumen & Kolaborasi Selamat ArkaDMS
+                    Sistem Pengurusan Dokumen & Kolaborasi Selamat ETS Document Management
                   </p>
                   <p>E-mel ini dijana secara automatik oleh pangkalan data Firebase Cloud Functions.</p>
                 </div>

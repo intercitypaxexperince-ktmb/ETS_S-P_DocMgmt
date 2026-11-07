@@ -27,7 +27,7 @@ interface OrganizationModuleProps {
   departments: Department[];
   users: UserProfile[];
   documents: DmsDocument[];
-  currentUser: UserProfile;
+  currentUser: UserProfile | null;
   onCreateDepartment: (dept: Omit<Department, 'id' | 'createdAt'>) => void;
   onUpdateDepartment: (deptId: string, updates: Partial<Department>) => void;
   onDeleteDepartment: (deptId: string, fallbackDeptId: string, fallbackUnitId: string) => void;

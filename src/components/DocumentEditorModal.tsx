@@ -44,7 +44,7 @@ interface DocumentEditorModalProps {
   onClose: () => void;
   onSave: (docData: Partial<DmsDocument>, notifyStakeholders: boolean) => Promise<void>;
   initialDoc?: DmsDocument | null;
-  currentUser: UserProfile;
+  currentUser: UserProfile | null;
   departments: Department[];
   categories: CustomCategory[];
   folders?: DmsFolder[];
@@ -121,8 +121,8 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
   const [offlineAvailable, setOfflineAvailable] = useState<boolean>(true);
 
   // Department & Unit
-  const [selectedDeptId, setSelectedDeptId] = useState(currentUser.departmentId || 'dept_it');
-  const [selectedUnitId, setSelectedUnitId] = useState(currentUser.unitId || 'unit_cyber_sec');
+  const [selectedDeptId, setSelectedDeptId] = useState(currentUser?.departmentId || 'dept_it');
+  const [selectedUnitId, setSelectedUnitId] = useState(currentUser?.unitId || 'unit_cyber_sec');
 
   // Security & Clearance
   const [isConfidential, setIsConfidential] = useState(false);
@@ -156,8 +156,8 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
       setTagsInput(initialDoc.tags?.join(', ') || '');
       setSummary(initialDoc.summary || '');
       setContent(initialDoc.content || '');
-      setSelectedDeptId(initialDoc.departmentId || currentUser.departmentId || 'dept_it');
-      setSelectedUnitId(initialDoc.unitId || currentUser.unitId || 'unit_cyber_sec');
+      setSelectedDeptId(initialDoc.departmentId || currentUser?.departmentId || 'dept_it');
+      setSelectedUnitId(initialDoc.unitId || currentUser?.unitId || 'unit_cyber_sec');
       setIsConfidential(initialDoc.isConfidential);
       const rawClearance = initialDoc.clearanceRequired || 'BIASA';
       setClearanceRequired(rawClearance === 'RAHSIA_BESAR' ? 'P&C' : rawClearance);
@@ -191,8 +191,8 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
       setTagsInput('Paper, Rasmi, Arkib');
       setSummary('');
       setContent('');
-      setSelectedDeptId(currentUser.departmentId || 'dept_it');
-      setSelectedUnitId(currentUser.unitId || 'unit_cyber_sec');
+      setSelectedDeptId(currentUser?.departmentId || 'dept_it');
+      setSelectedUnitId(currentUser?.unitId || 'unit_cyber_sec');
       setIsConfidential(false);
       setClearanceRequired('BIASA');
       setIsEncrypted(false);
@@ -349,11 +349,11 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
         iv: encryptedPayload.iv,
         salt: encryptedPayload.salt,
         currentVersion: initialDoc?.currentVersion || '1.0',
-        authorId: initialDoc?.authorId || currentUser.uid,
-        authorName: initialDoc?.authorName || currentUser.displayName,
-        authorEmail: initialDoc?.authorEmail || currentUser.email,
-        creatorServiceNumber: initialDoc?.creatorServiceNumber || currentUser.serviceNumber,
-        lastModifiedBy: currentUser.displayName,
+        authorId: initialDoc?.authorId || currentUser?.uid || 'guest',
+        authorName: initialDoc?.authorName || currentUser?.displayName || 'Pengguna Tetamu',
+        authorEmail: initialDoc?.authorEmail || currentUser?.email || 'pegawai@arkadms.gov.my',
+        creatorServiceNumber: initialDoc?.creatorServiceNumber || currentUser?.serviceNumber || '000000',
+        lastModifiedBy: currentUser?.displayName || 'Pengguna Tetamu',
       };
 
       if (!initialDoc) {
@@ -362,8 +362,8 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
           {
             id: `wf_${Date.now()}`,
             stage: 'Disediakan',
-            handledBy: `${currentUser.displayName} (No. ${currentUser.serviceNumber || '882104'})`,
-            departmentName: currentUser.departmentName,
+            handledBy: `${currentUser?.displayName || 'Pegawai'} (No. ${currentUser?.serviceNumber || '000000'})`,
+            departmentName: currentUser?.departmentName || 'Jabatan Am',
             date: new Date().toLocaleDateString('ms-MY', { day: '2-digit', month: '2-digit', year: 'numeric' }) + ' ' + new Date().toLocaleTimeString('ms-MY', { hour: '2-digit', minute: '2-digit' }),
             status: 'selesai',
             notes: 'Pendaftaran draf asal dokumen paper ke dalam sistem.',
@@ -408,7 +408,7 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
               {isEditing ? 'Sunting Dokumen & Metadata' : 'Daftar Dokumen / Paper Baharu'}
             </h3>
             <p className="text-xs text-slate-500">
-              Pencipta: <strong>{currentUser.displayName}</strong> (No. Perkhidmatan: {currentUser.serviceNumber})
+              Pencipta: <strong>{currentUser?.displayName || 'Pengguna Tetamu'}</strong> (No. Perkhidmatan: #{currentUser?.serviceNumber || '000000'})
             </p>
           </div>
           <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700">
@@ -531,14 +531,14 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
 
             <div>
               <label className="block font-semibold text-slate-800 dark:text-slate-200 mb-1">
-                Folder ArkaDrive
+                Folder Dokumen
               </label>
               <select
                 value={folderId || ''}
                 onChange={(e) => setFolderId(e.target.value ? e.target.value : null)}
                 className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100"
               >
-                <option value="">📁 ArkaDrive Utama (Luar Folder)</option>
+                <option value="">📁 ETS Document Management Utama (Luar Folder)</option>
                 {folders.map((f) => (
                   <option key={f.id} value={f.id}>
                     📁 {f.name} ({f.clearanceLevel})

@@ -14,6 +14,8 @@ import {
   getDocumentEffectiveAccess,
   hasClearance,
   isSuperAdmin,
+  canManageFolder,
+  canDeleteDocument,
 } from '../types/dms';
 import {
   Folder,
@@ -44,6 +46,7 @@ import {
   Building2,
   HardDriveDownload,
   CheckCircle,
+  AlertTriangle,
 } from 'lucide-react';
 
 interface DriveFolderViewProps {
@@ -51,15 +54,17 @@ interface DriveFolderViewProps {
   documents: DmsDocument[];
   groups: UserGroup[];
   users: UserProfile[];
-  currentUser: UserProfile;
+  currentUser: UserProfile | null;
   onSelectDocument: (doc: DmsDocument) => void;
   onOpenCreateDocumentModal: (targetFolderId?: string) => void;
   onCreateFolder: (folder: Omit<DmsFolder, 'id' | 'createdAt'>) => void;
   onUpdateFolder: (folderId: string, updates: Partial<DmsFolder>) => void;
   onDeleteFolder: (folderId: string) => void;
+  onDeleteDocument?: (docId: string, title?: string) => void;
   onMoveDocumentToFolder: (documentId: string, targetFolderId: string | null) => void;
   onToggleOfflineAvailable: (docId: string, available: boolean) => void;
   onShowToast: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
+  onOpenLoginModal?: () => void;
 }
 
 const FOLDER_COLORS: Record<string, { bg: string; text: string; border: string; icon: string }> = {
@@ -83,9 +88,11 @@ export const DriveFolderView: React.FC<DriveFolderViewProps> = ({
   onCreateFolder,
   onUpdateFolder,
   onDeleteFolder,
+  onDeleteDocument,
   onMoveDocumentToFolder,
   onToggleOfflineAvailable,
   onShowToast,
+  onOpenLoginModal,
 }) => {
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -96,6 +103,10 @@ export const DriveFolderView: React.FC<DriveFolderViewProps> = ({
   const [editingFolder, setEditingFolder] = useState<DmsFolder | null>(null);
   const [isMoveDocModalOpen, setIsMoveDocModalOpen] = useState(false);
   const [docToMove, setDocToMove] = useState<DmsDocument | null>(null);
+
+  // In-app Deletion Confirmation Dialogs
+  const [folderToDelete, setFolderToDelete] = useState<DmsFolder | null>(null);
+  const [docToDelete, setDocToDelete] = useState<DmsDocument | null>(null);
 
   // Folder form state
   const [formFolderName, setFormFolderName] = useState('');
@@ -112,7 +123,7 @@ export const DriveFolderView: React.FC<DriveFolderViewProps> = ({
 
   // Compute breadcrumb trail
   const breadcrumbs = useMemo(() => {
-    const trail: { id: string | null; name: string }[] = [{ id: null, name: 'ArkaDrive Utama' }];
+    const trail: { id: string | null; name: string }[] = [{ id: null, name: 'Folder Utama' }];
     if (!currentFolderId) return trail;
 
     const buildTrail = (folderId: string) => {
@@ -167,6 +178,11 @@ export const DriveFolderView: React.FC<DriveFolderViewProps> = ({
   }, [documents, currentFolderId, currentUser, groups, searchQuery]);
 
   const handleOpenCreateFolder = () => {
+    if (!currentUser) {
+      if (onOpenLoginModal) onOpenLoginModal();
+      else onShowToast('Akses Terhad', 'Sila log masuk dengan No. Perkhidmatan untuk mencipta folder baharu.', 'error');
+      return;
+    }
     setEditingFolder(null);
     setFormFolderName('');
     setFormFolderDesc('');
@@ -178,6 +194,19 @@ export const DriveFolderView: React.FC<DriveFolderViewProps> = ({
   };
 
   const handleOpenEditFolder = (f: DmsFolder) => {
+    if (!currentUser) {
+      if (onOpenLoginModal) onOpenLoginModal();
+      else onShowToast('Akses Terhad', 'Sila log masuk dengan No. Perkhidmatan untuk menyunting folder.', 'error');
+      return;
+    }
+    if (!canManageFolder(f, currentUser)) {
+      onShowToast(
+        'Akses Terhad',
+        'Tetapan akses folder ini hanya dibenarkan untuk Owner (pencipta), Pentadbir (Admin) atau Super Admin.',
+        'error'
+      );
+      return;
+    }
     setEditingFolder(f);
     setFormFolderName(f.name);
     setFormFolderDesc(f.description || '');
@@ -214,39 +243,64 @@ export const DriveFolderView: React.FC<DriveFolderViewProps> = ({
         color: formFolderColor,
         allowedGroups: formAllowedGroups,
         allowedUsers: formAllowedUsers,
-        createdBy: currentUser.displayName,
+        createdBy: currentUser?.displayName || 'Pengguna Tetamu',
+        creatorId: currentUser?.uid,
       });
       onShowToast('Folder Dicipta', `Folder "${formFolderName}" berjaya diwujudkan.`, 'success');
     }
     setIsFolderModalOpen(false);
   };
 
-  const handleDeleteFolderConfirm = (f: DmsFolder) => {
-    // Check if subfolders exist
-    const hasChildren = folders.some((cf) => cf.parentId === f.id);
-    const hasDocs = documents.some((d) => d.folderId === f.id);
+  const handleDeleteFolderInitiate = (f: DmsFolder) => {
+    if (!currentUser) {
+      if (onOpenLoginModal) onOpenLoginModal();
+      else onShowToast('Akses Terhad', 'Sila log masuk dengan No. Perkhidmatan terlebih dahulu.', 'error');
+      return;
+    }
 
-    if (hasChildren) {
+    const hasChildren = folders.some((cf) => cf.parentId === f.id);
+    const docCount = documents.filter((d) => d.folderId === f.id).length;
+
+    // Folder cannot be deleted if it has files or subfolders
+    if (hasChildren || docCount > 0) {
       onShowToast(
-        'Gagal Memadam Folder',
-        `Folder "${f.name}" mengandungi sub-folder. Sila padam atau pindahkan sub-folder terlebih dahulu.`,
+        'Folder Tidak Boleh Dipadam',
+        `Folder "${f.name}" tidak boleh dipadam kerana mengandungi ${docCount > 0 ? `${docCount} fail/dokumen` : ''}${docCount > 0 && hasChildren ? ' dan ' : ''}${hasChildren ? 'sub-folder' : ''}. Sila padam atau pindahkan semua kandungan terlebih dahulu bagi mengelakkan fail tergantung.`,
         'error'
       );
       return;
     }
 
-    const docCount = documents.filter((d) => d.folderId === f.id).length;
-    const confirmMsg = docCount > 0
-      ? `Folder "${f.name}" mengandungi ${docCount} dokumen. Semua dokumen akan dialihkan ke Luar Folder (Utama). Adakah anda pasti ingin memadam?`
-      : `Adakah anda pasti ingin memadam folder "${f.name}"?`;
-
-    if (confirm(confirmMsg)) {
-      onDeleteFolder(f.id);
-      if (currentFolderId === f.id) {
-        setCurrentFolderId(f.parentId || null);
-      }
-      onShowToast('Folder Dipadam', `Folder "${f.name}" telah dikeluarkan.`, 'info');
+    // Only owner, admin, or superadmin can delete empty folders
+    if (!canManageFolder(f, currentUser)) {
+      onShowToast(
+        'Akses Terhad',
+        'Hanya Pencipta Folder (Owner), Pentadbir Sistem (Admin), atau Super Admin dibenarkan memadam folder ini.',
+        'error'
+      );
+      return;
     }
+
+    // Prompt in-app confirmation modal
+    setFolderToDelete(f);
+  };
+
+  const handleExecuteDeleteFolder = () => {
+    if (!folderToDelete) return;
+    onDeleteFolder(folderToDelete.id);
+    if (currentFolderId === folderToDelete.id) {
+      setCurrentFolderId(folderToDelete.parentId || null);
+    }
+    onShowToast('Folder Berjaya Dipadam', `Folder kosong "${folderToDelete.name}" telah dipadam.`, 'info');
+    setFolderToDelete(null);
+  };
+
+  const handleExecuteDeleteDocument = () => {
+    if (!docToDelete) return;
+    if (onDeleteDocument) {
+      onDeleteDocument(docToDelete.id, docToDelete.title);
+    }
+    setDocToDelete(null);
   };
 
   const handleOpenMoveDoc = (doc: DmsDocument) => {
@@ -318,8 +372,15 @@ export const DriveFolderView: React.FC<DriveFolderViewProps> = ({
             </button>
 
             <button
-              onClick={() => onOpenCreateDocumentModal(currentFolderId || undefined)}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium rounded-lg bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900 shadow-xs transition-colors"
+              onClick={() => {
+                if (!currentUser) {
+                  if (onOpenLoginModal) onOpenLoginModal();
+                  else onShowToast('Akses Terhad', 'Sila log masuk dengan No. Perkhidmatan terlebih dahulu.', 'error');
+                  return;
+                }
+                onOpenCreateDocumentModal(currentFolderId || undefined);
+              }}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium rounded-lg bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900 shadow-xs transition-colors cursor-pointer"
             >
               <Plus className="w-4 h-4" />
               <span>Cipta Dokumen / Paper</span>
@@ -359,7 +420,7 @@ export const DriveFolderView: React.FC<DriveFolderViewProps> = ({
             <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
             <input
               type="text"
-              placeholder={`Cari fail di ${currentFolder ? currentFolder.name : 'ArkaDrive'}...`}
+              placeholder={`Cari fail di ${currentFolder ? currentFolder.name : 'ETS Document Management'}...`}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white placeholder-slate-400 focus:outline-hidden"
@@ -386,9 +447,7 @@ export const DriveFolderView: React.FC<DriveFolderViewProps> = ({
               const colorCfg = FOLDER_COLORS[f.color || 'blue'] || FOLDER_COLORS.blue;
               const docCount = documents.filter((d) => d.folderId === f.id).length;
               const subCount = folders.filter((sf) => sf.parentId === f.id).length;
-              const assignedGroupNames = groups
-                .filter((g) => f.allowedGroups?.includes(g.id))
-                .map((g) => g.name);
+              const isManager = canManageFolder(f, currentUser);
 
               return (
                 <div
@@ -425,22 +484,28 @@ export const DriveFolderView: React.FC<DriveFolderViewProps> = ({
                       {docCount} fail {subCount > 0 && `· ${subCount} sub`}
                     </span>
 
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => handleOpenEditFolder(f)}
-                        className="p-1 hover:text-slate-900 dark:hover:text-white rounded"
-                        title="Tetapan Akses & Kumpulan"
-                      >
-                        <Shield className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteFolderConfirm(f)}
-                        className="p-1 hover:text-rose-600 rounded"
-                        title="Padam Folder"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
+                    {isManager ? (
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => handleOpenEditFolder(f)}
+                          className="p-1 hover:text-slate-900 dark:hover:text-white rounded"
+                          title="Tetapan Akses & Kumpulan (Owner/Admin)"
+                        >
+                          <Shield className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteFolderInitiate(f)}
+                          className="p-1 hover:text-rose-600 rounded"
+                          title="Padam Folder (Hanya jika kosong)"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="text-[10px] text-slate-400">
+                        {f.createdBy ? `${f.createdBy.split(' ')[0]}` : ''}
+                      </span>
+                    )}
                   </div>
                 </div>
               );
@@ -562,6 +627,19 @@ export const DriveFolderView: React.FC<DriveFolderViewProps> = ({
                       >
                         <Eye className="w-3.5 h-3.5" />
                       </button>
+
+                      {canDeleteDocument(doc, currentUser) && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDocToDelete(doc);
+                          }}
+                          className="p-1 text-slate-400 hover:text-rose-600 rounded"
+                          title="Padam Fail (Owner/Admin)"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -641,6 +719,15 @@ export const DriveFolderView: React.FC<DriveFolderViewProps> = ({
                         >
                           <Move className="w-3.5 h-3.5" />
                         </button>
+                        {canDeleteDocument(doc, currentUser) && (
+                          <button
+                            onClick={() => setDocToDelete(doc)}
+                            className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                            title="Padam Fail (Owner/Admin)"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                         <button
                           onClick={() => onSelectDocument(doc)}
                           className="px-2 py-1 text-[11px] bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded font-medium"
@@ -840,7 +927,7 @@ export const DriveFolderView: React.FC<DriveFolderViewProps> = ({
                     className="w-full p-2.5 text-left text-xs hover:bg-slate-50 dark:hover:bg-slate-800/40 flex items-center justify-between transition-colors"
                   >
                     <span className="font-medium text-slate-800 dark:text-slate-200">
-                      📁 ArkaDrive Utama (Luar Folder)
+                      📁 ETS Document Management Utama (Luar Folder)
                     </span>
                     {!docToMove.folderId && <Check className="w-4 h-4 text-emerald-500" />}
                   </button>
@@ -876,6 +963,123 @@ export const DriveFolderView: React.FC<DriveFolderViewProps> = ({
                   Batal
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* In-App Confirmation Modal: Delete Empty Folder */}
+      {folderToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 rounded-xl">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  Sahkan Pemadaman Folder Kosong
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Tindakan ini tidak boleh diundur.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl text-xs space-y-1.5 border border-slate-200/60 dark:border-slate-700/60">
+              <p className="text-slate-700 dark:text-slate-300">
+                Adakah anda pasti mahu memadamkan folder kosong ini?
+              </p>
+              <p className="font-semibold text-slate-900 dark:text-white text-sm">
+                📁 {folderToDelete.name}
+              </p>
+              <div className="flex items-center gap-2 pt-1 text-[11px] text-slate-500">
+                <span>Dicipta oleh: <strong>{folderToDelete.createdBy || 'Sistem'}</strong></span>
+                <span>·</span>
+                <span>Klasifikasi: <strong>{folderToDelete.clearanceLevel}</strong></span>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Folder ini disahkan kosong (tiada sebarang fail atau sub-folder). Sebagai Owner atau Pentadbir, anda dibenarkan memadam folder ini.
+            </p>
+
+            <div className="pt-2 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setFolderToDelete(null)}
+                className="px-4 py-2 text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleExecuteDeleteFolder}
+                className="px-4 py-2 text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white rounded-lg shadow-xs flex items-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Ya, Padam Folder</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* In-App Confirmation Modal: Delete Document */}
+      {docToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 rounded-xl">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  Sahkan Pemadaman Fail
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Pengesahan diperlukan untuk meneruskan.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl text-xs space-y-1.5 border border-slate-200/60 dark:border-slate-700/60">
+              <p className="text-slate-700 dark:text-slate-300">
+                Adakah anda pasti mahu memadam fail ini dari arkib?
+              </p>
+              <p className="font-semibold text-slate-900 dark:text-white text-sm">
+                📄 {docToDelete.title}
+              </p>
+              <div className="flex items-center gap-2 pt-1 text-[11px] text-slate-500 flex-wrap">
+                <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 font-medium">
+                  {docToDelete.category}
+                </span>
+                <span>Tarikh Dokumen: <strong>{docToDelete.documentDate}</strong></span>
+                <span>·</span>
+                <span>Pencipta: <strong>{docToDelete.authorName}</strong></span>
+              </div>
+            </div>
+
+            <p className="text-xs text-rose-600 dark:text-rose-400 font-medium leading-relaxed">
+              Amaran: Fail ini akan dikeluarkan sepenuhnya dari simpanan sistem dan rekod pemadaman akan disimpan dalam Log Audit.
+            </p>
+
+            <div className="pt-2 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setDocToDelete(null)}
+                className="px-4 py-2 text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleExecuteDeleteDocument}
+                className="px-4 py-2 text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white rounded-lg shadow-xs flex items-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Ya, Teruskan & Padam Fail</span>
+              </button>
             </div>
           </div>
         </div>

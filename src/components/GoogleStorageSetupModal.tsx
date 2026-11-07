@@ -23,7 +23,7 @@ interface GoogleStorageSetupModalProps {
   isOpen: boolean;
   onClose: () => void;
   storageConfig: GoogleStorageConfig;
-  currentUser: UserProfile;
+  currentUser: UserProfile | null;
   onConfigSaved: (config: GoogleStorageConfig) => void;
   onShowToast: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
 }
@@ -76,7 +76,7 @@ export const GoogleStorageSetupModal: React.FC<GoogleStorageSetupModalProps> = (
       isConfigured: true,
       bucketName: bucketName.trim(),
       configuredAt: new Date().toISOString(),
-      configuredBy: `${currentUser.displayName} (#${currentUser.serviceNumber || '990001'})`,
+      configuredBy: `${currentUser?.displayName || 'Pentadbir'} (#${currentUser?.serviceNumber || '990001'})`,
     };
     saveStorageConfig(updated);
     onConfigSaved(updated);

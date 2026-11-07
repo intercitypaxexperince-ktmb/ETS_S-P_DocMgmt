@@ -33,7 +33,7 @@ import {
 interface UserGroupModuleProps {
   groups: UserGroup[];
   users: UserProfile[];
-  currentUser: UserProfile;
+  currentUser: UserProfile | null;
   onCreateGroup: (group: Omit<UserGroup, 'id' | 'createdAt'>) => void;
   onUpdateGroup: (id: string, updates: Partial<UserGroup>) => void;
   onDeleteGroup: (id: string) => void;
@@ -131,7 +131,7 @@ export const UserGroupModule: React.FC<UserGroupModuleProps> = ({
     setFormDescription('');
     setFormPermission('review_only');
     setFormColor('blue');
-    setFormMemberIds([currentUser.uid]);
+    setFormMemberIds(currentUser ? [currentUser.uid] : []);
     setIsModalOpen(true);
   };
 
@@ -181,7 +181,7 @@ export const UserGroupModule: React.FC<UserGroupModuleProps> = ({
         permission: formPermission,
         color: formColor,
         memberIds: formMemberIds,
-        createdBy: currentUser.displayName,
+        createdBy: currentUser?.displayName || 'Pentadbir Sistem',
       });
       onShowToast('Kumpulan Dicipta', `Kumpulan baharu "${formName}" berjaya diwujudkan.`, 'success');
     }
@@ -284,7 +284,7 @@ export const UserGroupModule: React.FC<UserGroupModuleProps> = ({
         {filteredGroups.map((group) => {
           const permMeta = PERMISSION_CONFIG[group.permission] || PERMISSION_CONFIG.view_only;
           const PermIcon = permMeta.icon;
-          const isUserMember = group.memberIds?.includes(currentUser.uid);
+          const isUserMember = currentUser ? group.memberIds?.includes(currentUser.uid) : false;
           const membersList = users.filter((u) => group.memberIds?.includes(u.uid));
 
           return (

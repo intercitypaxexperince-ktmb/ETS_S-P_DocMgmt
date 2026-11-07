@@ -21,9 +21,11 @@ import {
 } from 'lucide-react';
 
 interface UserProfileSwitcherProps {
-  currentUser: UserProfile;
+  currentUser: UserProfile | null;
   availableUsers: UserProfile[];
   onSwitchUser: (user: UserProfile) => void;
+  onLogout?: () => void;
+  onOpenLoginModal?: () => void;
   onGoogleSignIn: () => void;
   onGoogleSignOut: () => void;
   isGoogleAuthenticated: boolean;
@@ -34,6 +36,8 @@ export const UserProfileSwitcher: React.FC<UserProfileSwitcherProps> = ({
   currentUser,
   availableUsers,
   onSwitchUser,
+  onLogout,
+  onOpenLoginModal,
   onGoogleSignIn,
   onGoogleSignOut,
   isGoogleAuthenticated,
@@ -60,7 +64,7 @@ export const UserProfileSwitcher: React.FC<UserProfileSwitcherProps> = ({
   };
 
   const handleInitiateSwitch = (user: UserProfile) => {
-    if (user.uid === currentUser.uid) {
+    if (currentUser && user.uid === currentUser.uid) {
       setIsOpen(false);
       return;
     }
@@ -104,11 +108,26 @@ export const UserProfileSwitcher: React.FC<UserProfileSwitcherProps> = ({
     setErrorMessage(null);
   };
 
+  // Paparan apabila tiada sesi aktif (Guest Mode)
+  if (!currentUser) {
+    return (
+      <div className="flex items-center gap-2">
+        <button
+          onClick={onOpenLoginModal}
+          className="flex items-center gap-2 px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors shadow-xs text-xs font-semibold cursor-pointer"
+        >
+          <LogIn className="w-3.5 h-3.5" />
+          <span>Tiada Sesi Aktif · Log Masuk Rasmi</span>
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="relative inline-block text-left">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-3 p-1.5 pr-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg hover:border-slate-300 dark:hover:border-slate-700 transition-colors shadow-xs"
+        className="flex items-center gap-3 p-1.5 pr-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg hover:border-slate-300 dark:hover:border-slate-700 transition-colors shadow-xs cursor-pointer"
       >
         <div className="w-8 h-8 rounded-md overflow-hidden bg-slate-200 dark:bg-slate-800 shrink-0">
           <img
@@ -217,6 +236,22 @@ export const UserProfileSwitcher: React.FC<UserProfileSwitcherProps> = ({
                 );
               })}
             </div>
+
+            {/* Tamatkan Sesi (Log Keluar) */}
+            {onLogout && (
+              <div className="border-t border-slate-100 dark:border-slate-800 pt-2">
+                <button
+                  onClick={() => {
+                    setIsOpen(false);
+                    onLogout();
+                  }}
+                  className="w-full flex items-center justify-center gap-2 py-2 px-3 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span>Tamatkan Sesi (Log Keluar)</span>
+                </button>
+              </div>
+            )}
 
             {/* Google Authentication Box */}
             <div className="border-t border-slate-100 dark:border-slate-800 pt-2.5">

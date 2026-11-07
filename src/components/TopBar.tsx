@@ -5,16 +5,17 @@
 
 import React from 'react';
 import { UserProfile, GoogleStorageConfig, canManageUsers } from '../types/dms';
-import { Plus, Bell, Wifi, WifiOff, Cloud } from 'lucide-react';
+import { Plus, Bell, Wifi, WifiOff, Cloud, LogIn } from 'lucide-react';
 
 interface TopBarProps {
   currentTab: string;
   onSelectTab: (tab: string) => void;
-  currentUser: UserProfile;
+  currentUser: UserProfile | null;
   isOnline: boolean;
   unreadNotifsCount: number;
   onOpenNotifications: () => void;
   onOpenCreateModal: () => void;
+  onOpenLoginModal?: () => void;
   pendingSyncCount: number;
   storageConfig?: GoogleStorageConfig;
   onOpenStorageSetup?: () => void;
@@ -28,6 +29,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   unreadNotifsCount,
   onOpenNotifications,
   onOpenCreateModal,
+  onOpenLoginModal,
   pendingSyncCount,
   storageConfig,
   onOpenStorageSetup,
@@ -40,7 +42,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           <div className="w-9 h-9 rounded-lg overflow-hidden border border-slate-200 dark:border-slate-800 shrink-0">
             <img
               src="/src/assets/images/logo_arkadms_seal_1793580726055.jpg"
-              alt="ArkaDMS Emblem"
+              alt="ETS Emblem"
               referrerPolicy="no-referrer"
               className="w-full h-full object-cover"
             />
@@ -49,7 +51,7 @@ export const TopBar: React.FC<TopBarProps> = ({
             onClick={() => onSelectTab('documents')}
             className="text-lg font-bold tracking-tight text-slate-900 dark:text-white whitespace-nowrap shrink-0 hover:opacity-90 transition-opacity"
           >
-            ArkaDMS
+            ETS Document Management
           </button>
         </div>
 
@@ -105,7 +107,7 @@ export const TopBar: React.FC<TopBarProps> = ({
             </button>
           )}
 
-          {currentUser.role !== 'viewer' && (
+          {currentUser && currentUser.role !== 'viewer' && (
             <button
               onClick={() => onSelectTab('organization')}
               className={`whitespace-nowrap shrink-0 transition-colors ${
@@ -170,7 +172,15 @@ export const TopBar: React.FC<TopBarProps> = ({
             )}
           </button>
 
-          {currentUser.role !== 'viewer' ? (
+          {!currentUser ? (
+            <button
+              onClick={onOpenLoginModal}
+              className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 rounded-lg transition-colors whitespace-nowrap shrink-0 shadow-sm"
+            >
+              <LogIn className="w-3.5 h-3.5" />
+              <span>Log Masuk Rasmi</span>
+            </button>
+          ) : currentUser.role !== 'viewer' ? (
             <button
               onClick={onOpenCreateModal}
               className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-slate-900 dark:bg-slate-100 dark:text-slate-900 rounded-lg hover:bg-slate-800 dark:hover:bg-white transition-colors whitespace-nowrap shrink-0 shadow-sm"

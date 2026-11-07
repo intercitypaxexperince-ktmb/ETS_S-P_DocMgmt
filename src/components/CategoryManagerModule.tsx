@@ -20,7 +20,7 @@ import {
 interface CategoryManagerModuleProps {
   categories: CustomCategory[];
   documents: DmsDocument[];
-  currentUser: UserProfile;
+  currentUser: UserProfile | null;
   onCreateCategory: (cat: Omit<CustomCategory, 'id' | 'createdAt'>) => void;
   onUpdateCategory: (id: string, updates: Partial<CustomCategory>) => void;
   onDeleteCategory: (id: string, name: string) => void;
@@ -45,7 +45,7 @@ export const CategoryManagerModule: React.FC<CategoryManagerModuleProps> = ({
   const [description, setDescription] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const isAdmin = currentUser.role === 'admin';
+  const isAdmin = currentUser?.role === 'admin';
 
   const filteredCategories = categories.filter((c) => {
     if (!searchQuery.trim()) return true;

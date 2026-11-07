@@ -11,6 +11,7 @@ import {
   CustomCategory,
   PaperStatus,
   hasClearance,
+  canDeleteDocument,
 } from '../types/dms';
 import {
   Search,
@@ -36,18 +37,20 @@ import {
   GitBranch,
   Shield,
   FileCheck,
+  AlertTriangle,
 } from 'lucide-react';
 import { formatBytes } from '../lib/imageCompressor';
 
 interface DocumentListProps {
   documents: DmsDocument[];
   categories: CustomCategory[];
-  currentUser: UserProfile;
+  currentUser: UserProfile | null;
   onSelectDocument: (doc: DmsDocument) => void;
   onDeleteDocument: (docId: string, title: string) => void;
   onExportPDF: (selectedDocs?: DmsDocument[]) => void;
   onExportCSV: (selectedDocs?: DmsDocument[]) => void;
   onShowToast: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
+  onOpenLoginModal?: () => void;
 }
 
 const TASK_CATEGORIES: ('Semua' | TaskCategory)[] = [
@@ -80,6 +83,7 @@ export const DocumentList: React.FC<DocumentListProps> = ({
   onExportPDF,
   onExportCSV,
   onShowToast,
+  onOpenLoginModal,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('Semua');
@@ -92,6 +96,18 @@ export const DocumentList: React.FC<DocumentListProps> = ({
 
   // Quick Slide-over Preview State
   const [previewDoc, setPreviewDoc] = useState<DmsDocument | null>(null);
+
+  // In-App Document Deletion Confirmation State
+  const [docToDelete, setDocToDelete] = useState<DmsDocument | null>(null);
+
+  const handleExecuteDeleteDoc = () => {
+    if (!docToDelete) return;
+    onDeleteDocument(docToDelete.id, docToDelete.title);
+    if (previewDoc && previewDoc.id === docToDelete.id) {
+      setPreviewDoc(null);
+    }
+    setDocToDelete(null);
+  };
 
   // Bulk Selection State
   const [selectedDocIds, setSelectedDocIds] = useState<Set<string>>(new Set());
@@ -106,24 +122,39 @@ export const DocumentList: React.FC<DocumentListProps> = ({
   // Filtered and sorted documents with strict clearance-based visibility
   const filteredDocuments = useMemo(() => {
     let result = documents.filter((doc) => {
-      // KAWALAN KESELAMATAN KETAT:
-      // Fail sulit dan P&C HANYA akan dipaparkan dalam senarai berdasarkan akses level pengguna
-      const isRestrictedDoc =
-        doc.isConfidential ||
-        doc.clearanceRequired === 'SULIT' ||
-        doc.clearanceRequired === 'P&C' ||
-        (doc.clearanceRequired as string) === 'RAHSIA_BESAR';
+      // 1. KAWALAN SESI KOSONG / TIADA SESI AKTIF (GUEST):
+      // By default selagi user tak log masuk:
+      // Hanya fail atau paper biasa atau yang general atau yang tidak diassign kepada mana2 group atau individu
+      if (!currentUser) {
+        const isOrdinary =
+          !doc.isConfidential &&
+          (!doc.clearanceRequired || doc.clearanceRequired === 'BIASA');
+        const hasIndividualAssignment = Array.isArray(doc.allowedUsers) && doc.allowedUsers.length > 0;
+        const hasGroupAssignment = Array.isArray(doc.allowedGroups) && doc.allowedGroups.length > 0;
 
-      if (isRestrictedDoc) {
-        const requiredLevel = doc.clearanceRequired || (doc.isConfidential ? 'SULIT' : 'BIASA');
-        const userHasClearance =
-          hasClearance(currentUser.clearanceLevel, requiredLevel, currentUser.role) ||
-          doc.authorId === currentUser.uid ||
-          (doc.allowedUsers && doc.allowedUsers.includes(currentUser.uid));
-
-        if (!userHasClearance) {
-          // Dokumen terperingkat disembunyikan sepenuhnya dari senarai untuk pengguna tanpa permit
+        if (!isOrdinary || hasIndividualAssignment || hasGroupAssignment) {
           return false;
+        }
+      } else {
+        // 2. KAWALAN KESELAMATAN BERPENGGUNA (LOGGED IN):
+        // Fail sulit dan P&C HANYA akan dipaparkan dalam senarai berdasarkan akses level pengguna
+        const isRestrictedDoc =
+          doc.isConfidential ||
+          doc.clearanceRequired === 'SULIT' ||
+          doc.clearanceRequired === 'P&C' ||
+          (doc.clearanceRequired as string) === 'RAHSIA_BESAR';
+
+        if (isRestrictedDoc) {
+          const requiredLevel = doc.clearanceRequired || (doc.isConfidential ? 'SULIT' : 'BIASA');
+          const userHasClearance =
+            hasClearance(currentUser.clearanceLevel, requiredLevel, currentUser.role) ||
+            doc.authorId === currentUser.uid ||
+            (doc.allowedUsers && doc.allowedUsers.includes(currentUser.uid));
+
+          if (!userHasClearance) {
+            // Dokumen terperingkat disembunyikan sepenuhnya dari senarai untuk pengguna tanpa permit
+            return false;
+          }
         }
       }
 
@@ -193,9 +224,9 @@ export const DocumentList: React.FC<DocumentListProps> = ({
     selectedTag,
     securityFilter,
     sortBy,
-    currentUser.clearanceLevel,
-    currentUser.role,
-    currentUser.uid,
+    currentUser?.clearanceLevel,
+    currentUser?.role,
+    currentUser?.uid,
   ]);
 
   const handleToggleSelectDoc = (id: string, e: React.MouseEvent) => {
@@ -245,6 +276,33 @@ export const DocumentList: React.FC<DocumentListProps> = ({
 
   return (
     <div className="space-y-5">
+      {/* Guest Mode Notice Banner */}
+      {!currentUser && (
+        <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2.5">
+            <div className="p-1.5 bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 rounded-lg shrink-0">
+              <Shield className="w-4 h-4" />
+            </div>
+            <div>
+              <p className="font-bold text-blue-900 dark:text-blue-200">
+                Mod Akses Awam (Tiada Sesi Aktif)
+              </p>
+              <p className="text-blue-700 dark:text-blue-300 text-[11px] mt-0.5">
+                Memaparkan fail & paper biasa (general) yang tidak dikhaskan kepada mana-mana individu atau kumpulan. Sila log masuk rasmi untuk capaian dokumen sulit dan modul khas.
+              </p>
+            </div>
+          </div>
+          {onOpenLoginModal && (
+            <button
+              onClick={onOpenLoginModal}
+              className="shrink-0 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold text-xs transition-colors cursor-pointer"
+            >
+              Log Masuk Rasmi
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Search and Action Toolbar */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div className="relative flex-1 max-w-xl">
@@ -562,11 +620,11 @@ export const DocumentList: React.FC<DocumentListProps> = ({
                             >
                               <Copy className="w-3.5 h-3.5" />
                             </button>
-                            {currentUser.role === 'admin' && (
+                            {canDeleteDocument(doc, currentUser) && (
                               <button
-                                onClick={() => onDeleteDocument(doc.id, doc.title)}
+                                onClick={() => setDocToDelete(doc)}
                                 className="p-1.5 text-slate-400 hover:text-rose-600 rounded hover:bg-rose-50"
-                                title="Padam Dokumen"
+                                title="Padam Dokumen (Owner/Admin)"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
@@ -633,9 +691,18 @@ export const DocumentList: React.FC<DocumentListProps> = ({
                         {(doc.attachmentType?.includes('pdf') || doc.attachmentName?.toLowerCase().endsWith('.pdf')) ? 'PDF' : 'Fail'}
                       </span>
                     )}
-                    <button onClick={() => setPreviewDoc(doc)} className="p-1 hover:text-slate-900">
+                    <button onClick={() => setPreviewDoc(doc)} className="p-1 hover:text-slate-900" title="Pratinjau">
                       <Eye className="w-3.5 h-3.5" />
                     </button>
+                    {canDeleteDocument(doc, currentUser) && (
+                      <button
+                        onClick={() => setDocToDelete(doc)}
+                        className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-rose-50"
+                        title="Padam Dokumen (Owner/Admin)"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -676,7 +743,7 @@ export const DocumentList: React.FC<DocumentListProps> = ({
               </div>
             </div>
 
-            <div className="pt-4 border-t border-slate-100 dark:border-slate-800">
+            <div className="pt-4 border-t border-slate-100 dark:border-slate-800 space-y-2">
               <button
                 onClick={() => {
                   const target = previewDoc;
@@ -687,6 +754,76 @@ export const DocumentList: React.FC<DocumentListProps> = ({
               >
                 <ExternalLink className="w-3.5 h-3.5" />
                 <span>Buka Paparan Penuh & Kronologi</span>
+              </button>
+
+              {canDeleteDocument(previewDoc, currentUser) && (
+                <button
+                  onClick={() => setDocToDelete(previewDoc)}
+                  className="w-full py-2 bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-colors"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Padam Fail Ini</span>
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* In-App Confirmation Modal: Delete Document */}
+      {docToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 rounded-xl">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  Sahkan Pemadaman Fail
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Pengesahan diperlukan untuk meneruskan.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl text-xs space-y-1.5 border border-slate-200/60 dark:border-slate-700/60">
+              <p className="text-slate-700 dark:text-slate-300">
+                Adakah anda pasti mahu memadam fail ini dari arkib?
+              </p>
+              <p className="font-semibold text-slate-900 dark:text-white text-sm">
+                📄 {docToDelete.title}
+              </p>
+              <div className="flex items-center gap-2 pt-1 text-[11px] text-slate-500 flex-wrap">
+                <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 font-medium">
+                  {docToDelete.category}
+                </span>
+                <span>Tarikh: <strong>{docToDelete.documentDate}</strong></span>
+                <span>·</span>
+                <span>Pencipta: <strong>{docToDelete.authorName}</strong></span>
+              </div>
+            </div>
+
+            <p className="text-xs text-rose-600 dark:text-rose-400 font-medium leading-relaxed">
+              Amaran: Fail ini akan dikeluarkan sepenuhnya dari simpanan sistem dan rekod pemadaman akan disimpan dalam Log Audit.
+            </p>
+
+            <div className="pt-2 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setDocToDelete(null)}
+                className="px-4 py-2 text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleExecuteDeleteDoc}
+                className="px-4 py-2 text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white rounded-lg shadow-xs flex items-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Ya, Teruskan & Padam Fail</span>
               </button>
             </div>
           </div>

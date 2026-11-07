@@ -170,6 +170,7 @@ export interface DmsFolder {
   description?: string;
   createdAt: string;
   createdBy: string;
+  creatorId?: string;
   isProtected?: boolean;
 }
 
@@ -296,9 +297,18 @@ export interface OfflineSyncQueueItem {
  */
 export const canUserAccessFolder = (
   folder: DmsFolder,
-  user: UserProfile,
+  user?: UserProfile | null,
   groups: UserGroup[] = []
 ): boolean => {
+  // Jika tiada sesi aktif (guest), hanya folder biasa tanpa sebarang penugasan dibenarkan
+  if (!user) {
+    const isRestricted =
+      folder.clearanceLevel !== 'BIASA' ||
+      (folder.allowedUsers && folder.allowedUsers.length > 0) ||
+      (folder.allowedGroups && folder.allowedGroups.length > 0);
+    return !isRestricted;
+  }
+
   if (isSuperAdmin(user) || user.role === 'admin') return true;
 
   // 1. Semak kelayakan tapisan keselamatan (Clearance Level)
@@ -337,9 +347,23 @@ export const canUserAccessFolder = (
  */
 export const getDocumentEffectiveAccess = (
   doc: DmsDocument,
-  user: UserProfile,
+  user?: UserProfile | null,
   groups: UserGroup[] = []
 ): { canAccess: boolean; permission: 'all' | 'edit' | 'review' | 'view'; via: string } => {
+  // Jika tiada sesi aktif (tiada pengguna log masuk), hanya dokumen terbuka/biasa dipaparkan
+  if (!user) {
+    const isPublic =
+      doc.clearanceRequired === 'BIASA' &&
+      !doc.isConfidential &&
+      (!doc.allowedUsers || doc.allowedUsers.length === 0) &&
+      (!doc.allowedGroups || doc.allowedGroups.length === 0);
+
+    if (isPublic) {
+      return { canAccess: true, permission: 'view', via: 'Fail Terbuka / Akses Awam' };
+    }
+    return { canAccess: false, permission: 'view', via: 'Tiada Sesi Aktif (Perlu Log Masuk)' };
+  }
+
   // Super Admin & Admin sentiasa mempunyai akses penuh
   if (isSuperAdmin(user) || user.role === 'admin') {
     return { canAccess: true, permission: 'all', via: 'Pentadbir Sistem' };
@@ -410,5 +434,44 @@ export const getDocumentEffectiveAccess = (
 
   const basePerm = user.role === 'editor' ? 'edit' : 'view';
   return { canAccess: true, permission: basePerm, via: `Peranan Pengguna (${user.role.toUpperCase()})` };
+};
+
+/**
+ * Semak sama ada pengguna dibenarkan memadam dokumen.
+ * Dibenarkan untuk: Pencipta / Owner asal fail, Pentadbir Sistem (Admin), atau Super Admin.
+ */
+export const canDeleteDocument = (doc: DmsDocument, user?: UserProfile | null): boolean => {
+  if (!user) return false;
+  if (isSuperAdmin(user) || user.role === 'admin') return true;
+  if (
+    doc.authorId === user.uid ||
+    (doc.creatorServiceNumber && doc.creatorServiceNumber === user.serviceNumber) ||
+    (doc.authorEmail && user.email && doc.authorEmail.toLowerCase() === user.email.toLowerCase()) ||
+    (doc.authorName && doc.authorName.toLowerCase() === user.displayName.toLowerCase())
+  ) {
+    return true;
+  }
+  return false;
+};
+
+/**
+ * Semak sama ada pengguna dibenarkan mengurus dan memadam folder.
+ * Dibenarkan untuk: Pencipta / Owner asal folder, Pentadbir Sistem (Admin), atau Super Admin.
+ */
+export const canManageFolder = (folder: DmsFolder, user?: UserProfile | null): boolean => {
+  if (!user) return false;
+  if (isSuperAdmin(user) || user.role === 'admin') return true;
+  if (
+    folder.creatorId === user.uid ||
+    (folder.createdBy && (
+      folder.createdBy === user.displayName ||
+      folder.createdBy === user.serviceNumber ||
+      folder.createdBy.includes(user.serviceNumber || '____') ||
+      folder.createdBy.toLowerCase() === user.displayName.toLowerCase()
+    ))
+  ) {
+    return true;
+  }
+  return false;
 };
 

@@ -37,7 +37,7 @@ import {
 interface UserManagerModuleProps {
   users: UserProfile[];
   departments: Department[];
-  currentUser: UserProfile;
+  currentUser: UserProfile | null;
   onCreateUser: (newUser: UserProfile) => void;
   onUpdateUser: (userId: string, updates: Partial<UserProfile>) => void;
   onLoginWithCredentials: (serviceNumber: string, password: string) => boolean;
@@ -238,7 +238,7 @@ export const UserManagerModule: React.FC<UserManagerModuleProps> = ({
         </div>
         <div className="pt-2">
           <span className="text-[11px] font-mono text-slate-500 bg-white dark:bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800">
-            Sesi Aktif: {currentUser.displayName} (#{currentUser.serviceNumber}) · Peranan: {currentUser.role.toUpperCase()}
+            Sesi Aktif: {currentUser ? `${currentUser.displayName} (#${currentUser.serviceNumber}) · Peranan: ${currentUser.role.toUpperCase()}` : 'Tiada Sesi Aktif (Guest)'}
           </span>
         </div>
       </div>

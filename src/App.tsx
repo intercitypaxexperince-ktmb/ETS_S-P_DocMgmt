@@ -22,6 +22,8 @@ import {
   SUPER_ADMIN_EMAIL,
   UserGroup,
   DmsFolder,
+  canDeleteDocument,
+  canManageFolder,
 } from './types/dms';
 import {
   INITIAL_DEPARTMENTS,
@@ -47,6 +49,7 @@ import { CategoryManagerModule } from './components/CategoryManagerModule';
 import { NotificationCenterModal } from './components/NotificationCenterModal';
 import { UserProfileSwitcher } from './components/UserProfileSwitcher';
 import { GoogleStorageSetupModal } from './components/GoogleStorageSetupModal';
+import { LoginModal } from './components/LoginModal';
 import { ToastContainer, ToastMessage } from './components/Toast';
 import { getStorageConfig } from './lib/storage';
 import {
@@ -219,15 +222,19 @@ export default function App() {
     return saved ? JSON.parse(saved) : INITIAL_CATEGORIES;
   });
 
-  const [currentUser, setCurrentUser] = useState<UserProfile>(() => {
-    const initialFirst = users[0] || INITIAL_USERS[0];
-    return {
-      ...initialFirst,
-      serviceNumber: initialFirst?.serviceNumber || '882104',
-      expiryDate: initialFirst?.expiryDate || '2028-12-31',
-      status: initialFirst?.status || 'active',
-    };
+  // Active User Session: BY DEFAULT NULL (TIADA SESI AKTIF SELAGI BELUM LOG MASUK)
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
+    const savedActive = localStorage.getItem('arkadms_active_user');
+    if (savedActive) {
+      try {
+        const parsed = JSON.parse(savedActive);
+        if (parsed && parsed.uid) return parsed;
+      } catch (e) {}
+    }
+    return null; // By default: tiada sesi aktif (Guest Mode)!
   });
+
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
 
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>(() => {
     const saved = localStorage.getItem('arkadms_logs');
@@ -327,12 +334,15 @@ export default function App() {
       if (user) {
         setIsGoogleAuth(true);
         setGoogleEmail(user.email);
-        setCurrentUser((prev) => ({
-          ...prev,
-          displayName: user.displayName || prev.displayName,
-          email: user.email || prev.email,
-          avatarUrl: user.photoURL || prev.avatarUrl,
-        }));
+        setCurrentUser((prev) => {
+          if (!prev) return null;
+          return {
+            ...prev,
+            displayName: user.displayName || prev.displayName,
+            email: user.email || prev.email,
+            avatarUrl: user.photoURL || prev.avatarUrl,
+          };
+        });
         showToast('Log Masuk Google Berjaya', `Sesi aktif: ${user.email}`, 'success');
       } else {
         setIsGoogleAuth(false);
@@ -400,9 +410,9 @@ export default function App() {
   ) => {
     const newLog: ActivityLog = {
       id: `log_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      userId: currentUser.uid,
-      userName: currentUser.displayName,
-      userRole: currentUser.role,
+      userId: currentUser?.uid || 'guest',
+      userName: currentUser?.displayName || 'Pengguna Awam',
+      userRole: currentUser?.role || 'viewer',
       action,
       documentId,
       documentTitle,
@@ -440,7 +450,7 @@ export default function App() {
       documentId,
       status: 'sent',
       timestamp: new Date().toISOString(),
-      triggeredBy: currentUser.displayName,
+      triggeredBy: currentUser?.displayName || 'Sistem ArkaDMS',
       priority,
     };
 
@@ -453,8 +463,42 @@ export default function App() {
     }
   };
 
+  const handleLoginSuccess = (user: UserProfile) => {
+    setCurrentUser(user);
+    localStorage.setItem('arkadms_active_user', JSON.stringify(user));
+    setIsLoginModalOpen(false);
+    logActivity(
+      'LOG_MASUK',
+      undefined,
+      undefined,
+      `Log masuk rasmi berjaya oleh ${user.displayName} (No. Perkhidmatan: #${user.serviceNumber}).`
+    );
+    showToast('Log Masuk Berjaya', `Selamat kembali, ${user.displayName} (#${user.serviceNumber}).`, 'success');
+  };
+
+  const handleLogout = () => {
+    if (currentUser) {
+      logActivity(
+        'LOG_MASUK',
+        undefined,
+        undefined,
+        `Sesi ditamatkan oleh ${currentUser.displayName} (#${currentUser.serviceNumber}).`
+      );
+    }
+    setCurrentUser(null);
+    localStorage.removeItem('arkadms_active_user');
+    setSelectedDocId(null);
+    setCurrentTab('documents');
+    showToast('Sesi Ditamatkan', 'Anda telah log keluar. Paparan kini adalah dokumen awam/biasa sahaja.', 'info');
+  };
+
   // Document CRUD Handlers
   const handleSaveDocument = async (docData: Partial<DmsDocument>, notifyStakeholders: boolean) => {
+    if (!currentUser) {
+      setIsLoginModalOpen(true);
+      showToast('Perlu Log Masuk', 'Sila log masuk dengan No. Perkhidmatan untuk menyimpan dokumen.', 'error');
+      return;
+    }
     if (editingDoc) {
       const updatedList = documents.map((d) => {
         if (d.id === editingDoc.id) {
@@ -596,7 +640,7 @@ export default function App() {
           ...d,
           paperStatus: newStatus,
           updatedAt: new Date().toISOString(),
-          lastModifiedBy: currentUser.displayName,
+          lastModifiedBy: currentUser ? currentUser.displayName : 'Pegawai',
           workflowChronology: stepToAdd
             ? [...(d.workflowChronology || []), stepToAdd]
             : d.workflowChronology || [],
@@ -618,7 +662,7 @@ export default function App() {
       targetDoc.authorEmail || 'faridah.mansor@arkadms.gov.my',
       targetDoc.authorName,
       `[KRONOLOGI PAPER] Status Dikemaskini: ${targetDoc.title}`,
-      `Status paper "${targetDoc.title}" kini bertukar kepada "${newStatus}" oleh ${currentUser.displayName} (#${currentUser.serviceNumber}).\nNota Pegawai: ${newStep?.notes || 'Tiada nota tambahan.'}`,
+      `Status paper "${targetDoc.title}" kini bertukar kepada "${newStatus}" oleh ${currentUser?.displayName || 'Pegawai'} (#${currentUser?.serviceNumber || '882104'}).\nNota Pegawai: ${newStep?.notes || 'Tiada nota tambahan.'}`,
       targetDoc.isConfidential ? 'urgent' : 'high',
       docId
     );
@@ -628,7 +672,7 @@ export default function App() {
 
   // Category Management Handlers
   const handleCreateCategory = (newCatData: Omit<CustomCategory, 'id' | 'createdAt'>) => {
-    if (currentUser.role !== 'admin') {
+    if (!currentUser || currentUser.role !== 'admin') {
       showToast('Akses Ditolak', 'Hanya Pentadbir dibenarkan mencipta kategori fail baharu.', 'error');
       return;
     }
@@ -643,7 +687,7 @@ export default function App() {
   };
 
   const handleUpdateCategory = (id: string, updates: Partial<CustomCategory>) => {
-    if (currentUser.role !== 'admin') {
+    if (!currentUser || currentUser.role !== 'admin') {
       showToast('Akses Ditolak', 'Hanya Pentadbir dibenarkan mengemaskini kategori.', 'error');
       return;
     }
@@ -655,7 +699,7 @@ export default function App() {
   };
 
   const handleDeleteCategory = (id: string, name: string) => {
-    if (currentUser.role !== 'admin') {
+    if (!currentUser || currentUser.role !== 'admin') {
       showToast('Akses Ditolak', 'Hanya Pentadbir dibenarkan memadam kategori.', 'error');
       return;
     }
@@ -671,7 +715,7 @@ export default function App() {
 
   // User Management Handlers (No. Perkhidmatan & Expiry Date)
   const handleCreateUser = (newUser: UserProfile) => {
-    if (currentUser.role !== 'admin') {
+    if (!currentUser || currentUser.role !== 'admin') {
       showToast('Akses Ditolak', 'Hanya Pentadbir dibenarkan mendaftarkan pengguna baharu.', 'error');
       return;
     }
@@ -686,15 +730,15 @@ export default function App() {
   };
 
   const handleUpdateUser = (userId: string, updates: Partial<UserProfile>) => {
-    if (currentUser.role !== 'admin') {
+    if (!currentUser || currentUser.role !== 'admin') {
       showToast('Akses Ditolak', 'Hanya Pentadbir dibenarkan mengemaskini pengguna.', 'error');
       return;
     }
     setUsers((prev) =>
       prev.map((u) => (u.uid === userId ? { ...u, ...updates } : u))
     );
-    if (currentUser.uid === userId) {
-      setCurrentUser((prev) => ({ ...prev, ...updates }));
+    if (currentUser && currentUser.uid === userId) {
+      setCurrentUser((prev) => prev ? ({ ...prev, ...updates }) : null);
     }
     logActivity('KEMASKINI_PENGGUNA', undefined, undefined, `Mengemaskini profil akaun pengguna #${userId}.`);
     showToast('Pengguna Dikemaskini', 'Profil pengguna berjaya dikemaskini.', 'info');
@@ -739,6 +783,7 @@ export default function App() {
     };
 
     setCurrentUser(validUser);
+    localStorage.setItem('arkadms_active_user', JSON.stringify(validUser));
     logActivity(
       'LOG_MASUK_NO_PERKHIDMATAN',
       undefined,
@@ -749,20 +794,22 @@ export default function App() {
     return true;
   };
 
-  const handleDeleteDocument = (docId: string, title: string) => {
-    if (currentUser.role !== 'admin') {
-      showToast('Akses Ditolak', 'Hanya Pentadbir (Admin) dibenarkan memadam dokumen.', 'error');
+  const handleDeleteDocument = (docId: string, title?: string) => {
+    const targetDoc = documents.find((d) => d.id === docId);
+    if (!targetDoc) return;
+
+    if (!canDeleteDocument(targetDoc, currentUser)) {
+      showToast('Akses Ditolak', 'Hanya Pencipta Fail (Owner), Pentadbir Sistem (Admin), atau Super Admin dibenarkan memadam fail ini.', 'error');
       return;
     }
 
-    if (confirm(`Adakah anda pasti mahu memadam dokumen "${title}"?`)) {
-      setDocuments((prev) => prev.filter((d) => d.id !== docId));
-      if (selectedDocId === docId) setSelectedDocId(null);
-      logActivity('PADAM_DOKUMEN', docId, title, `Pentadbir memadamkan fail daripada arkib.`);
-      showToast('Dokumen Dipadam', `Fail "${title}" telah dikeluarkan dari arkib.`, 'info');
-      if (isOnline) {
-        deleteDoc(doc(db, 'documents', docId)).catch(() => {});
-      }
+    const docTitle = title || targetDoc.title;
+    setDocuments((prev) => prev.filter((d) => d.id !== docId));
+    if (selectedDocId === docId) setSelectedDocId(null);
+    logActivity('PADAM_DOKUMEN', docId, docTitle, `Fail dipadamkan oleh ${currentUser?.displayName || 'Pengguna'} (${currentUser?.role.toUpperCase()}).`);
+    showToast('Dokumen Dipadam', `Fail "${docTitle}" telah dikeluarkan dari arkib.`, 'info');
+    if (isOnline) {
+      deleteDoc(doc(db, 'documents', docId)).catch(() => {});
     }
   };
 
@@ -772,6 +819,11 @@ export default function App() {
     highlightText?: string
   ) => {
     if (!selectedDoc) return;
+    if (!currentUser) {
+      setIsLoginModalOpen(true);
+      showToast('Perlu Log Masuk', 'Sila log masuk dengan No. Perkhidmatan untuk meninggalkan ulasan.', 'error');
+      return;
+    }
     const newComment: DocumentComment = {
       id: `comm_${Date.now()}`,
       documentId: selectedDoc.id,
@@ -814,6 +866,11 @@ export default function App() {
     summary: string,
     newContent: string
   ) => {
+    if (!currentUser) {
+      setIsLoginModalOpen(true);
+      showToast('Perlu Log Masuk', 'Sila log masuk untuk menerbitkan semakan.', 'error');
+      return;
+    }
     const docToUpdate = documents.find((d) => d.id === docId);
     if (!docToUpdate) return;
 
@@ -860,13 +917,17 @@ export default function App() {
   };
 
   const handleLogAccessAttempt = (targetDoc: DmsDocument, granted: boolean) => {
+    const userDisplay = currentUser ? currentUser.displayName : 'Pengguna Tanpa Sesi';
+    const userClearance = currentUser ? (currentUser.clearanceLevel === 'RAHSIA_BESAR' ? 'P&C' : currentUser.clearanceLevel) : 'TIADA';
+    const userEmail = currentUser ? currentUser.email : 'tetamu@arkadms.gov.my';
+
     if (granted) {
       if (targetDoc.isConfidential) {
         logActivity(
           'AKSES_SULIT',
           targetDoc.id,
           targetDoc.title,
-          `Pengguna ${currentUser.displayName} (${currentUser.clearanceLevel}) mengakses dokumen sulit terperingkat.`,
+          `Pengguna ${userDisplay} (${userClearance}) mengakses dokumen sulit terperingkat.`,
           true
         );
       }
@@ -875,7 +936,7 @@ export default function App() {
         'CUBAAN_AKSES_DITOLAK',
         targetDoc.id,
         targetDoc.title,
-        `PERINGATAN KESELAMATAN: Cubaan akses tanpa izin dikesan oleh ${currentUser.displayName} (Tapisan: ${currentUser.clearanceLevel}). Hak minimum: ${targetDoc.clearanceRequired}.`,
+        `PERINGATAN KESELAMATAN: Cubaan akses tanpa izin dikesan oleh ${userDisplay} (Tapisan: ${userClearance}). Hak minimum: ${targetDoc.clearanceRequired}.`,
         true
       );
 
@@ -883,7 +944,7 @@ export default function App() {
         'faridah.mansor@arkadms.gov.my',
         'Ir. Dr. Faridah Mansor (Ketua Keselamatan)',
         `[AMARAN KESELAMATAN] Cubaan Akses Fail Sulit Ditolak: ${targetDoc.title}`,
-        `Sistem ArkaDMS mengesan percubaan akses tanpa permit kepada fail sulit "${targetDoc.title}" (Klasifikasi: ${targetDoc.clearanceRequired}) oleh akaun: ${currentUser.displayName} (${currentUser.email}) pada ${new Date().toLocaleString('ms-MY')}. Tindakan telah disekat.`,
+        `Sistem ArkaDMS mengesan percubaan akses tanpa permit kepada fail sulit "${targetDoc.title}" (Klasifikasi: ${targetDoc.clearanceRequired}) oleh akaun: ${userDisplay} (${userEmail}) pada ${new Date().toLocaleString('ms-MY')}. Tindakan telah disekat.`,
         'urgent',
         targetDoc.id
       );
@@ -913,8 +974,8 @@ export default function App() {
       setUsers((prev) =>
         prev.map((u) => (u.departmentId === deptId ? { ...u, departmentName: updates.name! } : u))
       );
-      if (currentUser.departmentId === deptId) {
-        setCurrentUser((prev) => ({ ...prev, departmentName: updates.name! }));
+      if (currentUser && currentUser.departmentId === deptId) {
+        setCurrentUser((prev) => prev ? ({ ...prev, departmentName: updates.name! }) : null);
       }
     }
     logActivity('KEMASKINI_JABATAN', undefined, undefined, `Mengemaskini maklumat jabatan #${deptId}.`);
@@ -951,7 +1012,7 @@ export default function App() {
             ...doc,
             departmentId: fallbackDept?.id || 'dept_general',
             unitId: fallbackUnit?.id || 'unit_general',
-            lastModifiedBy: currentUser.displayName,
+            lastModifiedBy: currentUser?.displayName || 'Pentadbir Sistem',
             updatedAt: new Date().toISOString(),
           };
         }
@@ -975,14 +1036,14 @@ export default function App() {
       })
     );
 
-    if (currentUser.departmentId === deptId) {
-      setCurrentUser((prev) => ({
+    if (currentUser && currentUser.departmentId === deptId) {
+      setCurrentUser((prev) => prev ? ({
         ...prev,
         departmentId: fallbackDept?.id || 'dept_general',
         departmentName: fallbackDeptName,
         unitId: fallbackUnit?.id || 'unit_general',
         unitName: fallbackUnitName,
-      }));
+      }) : null);
     }
 
     setDepartments((prev) => prev.filter((d) => d.id !== deptId));
@@ -1037,8 +1098,8 @@ export default function App() {
       setUsers((prev) =>
         prev.map((u) => (u.unitId === unitId ? { ...u, unitName: updates.name! } : u))
       );
-      if (currentUser.unitId === unitId) {
-        setCurrentUser((prev) => ({ ...prev, unitName: updates.name! }));
+      if (currentUser && currentUser.unitId === unitId) {
+        setCurrentUser((prev) => prev ? ({ ...prev, unitName: updates.name! }) : null);
       }
     }
     logActivity('KEMASKINI_UNIT', undefined, undefined, `Mengemaskini maklumat unit #${unitId}.`);
@@ -1062,7 +1123,7 @@ export default function App() {
           return {
             ...doc,
             unitId: fallbackUnit?.id || 'unit_general',
-            lastModifiedBy: currentUser.displayName,
+            lastModifiedBy: currentUser?.displayName || 'Pentadbir Sistem',
             updatedAt: new Date().toISOString(),
           };
         }
@@ -1084,12 +1145,12 @@ export default function App() {
       })
     );
 
-    if (currentUser.unitId === unitId) {
-      setCurrentUser((prev) => ({
+    if (currentUser && currentUser.unitId === unitId) {
+      setCurrentUser((prev) => prev ? ({
         ...prev,
         unitId: fallbackUnit?.id || 'unit_general',
         unitName: fallbackUnitName,
-      }));
+      }) : null);
     }
 
     setDepartments((prev) =>
@@ -1118,8 +1179,8 @@ export default function App() {
     setUsers((prev) =>
       prev.map((u) => (u.uid === userId ? { ...u, role: newRole, clearanceLevel: newClearance } : u))
     );
-    if (currentUser.uid === userId) {
-      setCurrentUser((prev) => ({ ...prev, role: newRole, clearanceLevel: newClearance }));
+    if (currentUser && currentUser.uid === userId) {
+      setCurrentUser((prev) => prev ? ({ ...prev, role: newRole, clearanceLevel: newClearance }) : null);
     }
     logActivity(
       'KEMASKINI_PERANAN',
@@ -1201,12 +1262,31 @@ export default function App() {
 
   const handleDeleteFolder = (folderId: string) => {
     const targetFolder = folders.find((f) => f.id === folderId);
+    if (!targetFolder) return;
+
+    const hasChildren = folders.some((cf) => cf.parentId === folderId);
+    const hasDocs = documents.some((d) => d.folderId === folderId);
+    if (hasChildren || hasDocs) {
+      showToast(
+        'Gagal Memadam Folder',
+        `Folder "${targetFolder.name}" tidak boleh dipadam kerana masih mengandungi fail atau sub-folder.`,
+        'error'
+      );
+      return;
+    }
+
+    if (!canManageFolder(targetFolder, currentUser)) {
+      showToast(
+        'Akses Ditolak',
+        'Hanya Pencipta Folder (Owner), Pentadbir Sistem (Admin), atau Super Admin dibenarkan memadam folder ini.',
+        'error'
+      );
+      return;
+    }
+
     setFolders((prev) => prev.filter((f) => f.id !== folderId));
-    setDocuments((prev) =>
-      prev.map((d) => (d.folderId === folderId ? { ...d, folderId: null } : d))
-    );
-    logActivity('PADAM_FOLDER', undefined, undefined, `Memadam folder "${targetFolder?.name || folderId}". Dokumen dialihkan ke utama.`);
-    showToast('Folder Dipadam', `Folder "${targetFolder?.name || folderId}" dipadam. Dokumen dialihkan ke utama.`, 'info');
+    logActivity('PADAM_FOLDER', undefined, undefined, `Memadam folder kosong "${targetFolder.name}".`);
+    showToast('Folder Dipadam', `Folder kosong "${targetFolder.name}" telah dikeluarkan.`, 'info');
   };
 
   const handleMoveDocumentToFolder = (docId: string, targetFolderId: string | null) => {
@@ -1219,7 +1299,7 @@ export default function App() {
       'PINDAH_DOKUMEN_FOLDER',
       docId,
       targetDoc?.title,
-      `Memindahkan dokumen ke "${targetFolder ? targetFolder.name : 'ArkaDrive Utama'}".`
+      `Memindahkan dokumen ke "${targetFolder ? targetFolder.name : 'ETS Document Management Utama'}".`
     );
   };
 
@@ -1263,6 +1343,7 @@ export default function App() {
         pendingSyncCount={pendingSyncQueue.length}
         storageConfig={storageConfig}
         onOpenStorageSetup={() => setIsStorageSetupOpen(true)}
+        onOpenLoginModal={() => setIsLoginModalOpen(true)}
       />
 
       {/* Offline Sync Banner Notification */}
@@ -1286,7 +1367,7 @@ export default function App() {
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           {/* Breadcrumb Context */}
           <div className="flex items-center gap-2 text-xs text-slate-500">
-            <span className="font-semibold text-slate-800 dark:text-slate-200">ArkaDMS</span>
+            <span className="font-semibold text-slate-800 dark:text-slate-200">ETS Document Management</span>
             <span aria-hidden="true">/</span>
             <span className="capitalize">
               {currentTab === 'documents'
@@ -1338,6 +1419,8 @@ export default function App() {
                 showToast('Log Keluar', 'Akaun Google telah dilog keluar.', 'info');
               } catch (e) {}
             }}
+            onLogout={handleLogout}
+            onOpenLoginModal={() => setIsLoginModalOpen(true)}
             isGoogleAuthenticated={isGoogleAuth}
             googleUserEmail={googleEmail}
           />
@@ -1358,15 +1441,17 @@ export default function App() {
                   setEditingDoc(doc);
                   setIsEditorModalOpen(true);
                 }}
+                onDeleteDocument={handleDeleteDocument}
                 onAddComment={handleAddComment}
                 onAddNewRevision={handleAddNewRevision}
                 onUpdatePaperStatus={handleUpdatePaperStatus}
                 onLogAccessAttempt={handleLogAccessAttempt}
                 onExportPDF={(doc) => {
-                  exportDocumentsReportPDF([doc], currentUser.displayName, doc.category);
+                  exportDocumentsReportPDF([doc], currentUser?.displayName || 'Pengguna Awam', doc.category);
                   showToast('PDF Dijana', `Laporan "${doc.title}" berjaya dimuat turun.`, 'success');
                 }}
                 onShowToast={showToast}
+                onOpenLoginModal={() => setIsLoginModalOpen(true)}
               />
             ) : (
               <div className="space-y-5">
@@ -1413,7 +1498,7 @@ export default function App() {
                     onDeleteDocument={handleDeleteDocument}
                     onExportPDF={(selectedDocs) => {
                       const targetDocs = selectedDocs || documents;
-                      exportDocumentsReportPDF(targetDocs, currentUser.displayName);
+                      exportDocumentsReportPDF(targetDocs, currentUser?.displayName || 'Pengguna Awam');
                       showToast('Eksport PDF Selesai', `${targetDocs.length} dokumen dieksport ke PDF.`, 'success');
                     }}
                     onExportCSV={(selectedDocs) => {
@@ -1422,6 +1507,7 @@ export default function App() {
                       showToast('Eksport CSV Selesai', `${targetDocs.length} rekod dieksport ke CSV.`, 'success');
                     }}
                     onShowToast={showToast}
+                    onOpenLoginModal={() => setIsLoginModalOpen(true)}
                   />
                 ) : (
                   <DriveFolderView
@@ -1432,15 +1518,22 @@ export default function App() {
                     currentUser={currentUser}
                     onSelectDocument={(doc) => setSelectedDocId(doc.id)}
                     onOpenCreateDocumentModal={(targetFolderId) => {
+                      if (!currentUser) {
+                        setIsLoginModalOpen(true);
+                        showToast('Perlu Log Masuk', 'Sila log masuk dengan No. Perkhidmatan terlebih dahulu.', 'error');
+                        return;
+                      }
                       setEditingDoc(null);
                       setIsEditorModalOpen(true);
                     }}
                     onCreateFolder={handleCreateFolder}
                     onUpdateFolder={handleUpdateFolder}
                     onDeleteFolder={handleDeleteFolder}
+                    onDeleteDocument={handleDeleteDocument}
                     onMoveDocumentToFolder={handleMoveDocumentToFolder}
                     onToggleOfflineAvailable={handleToggleOfflineAvailable}
                     onShowToast={showToast}
+                    onOpenLoginModal={() => setIsLoginModalOpen(true)}
                   />
                 )}
               </div>
@@ -1509,7 +1602,7 @@ export default function App() {
               departments={departments}
               users={users}
               onExportPDF={() => {
-                exportDocumentsReportPDF(documents, currentUser.displayName, 'Analitik Produktiviti');
+                exportDocumentsReportPDF(documents, currentUser?.displayName || 'Pengguna Awam', 'Analitik Produktiviti');
                 showToast('Laporan Analitik PDF Dijana', 'Ringkasan eksekutif telah dimuat turun.', 'success');
               }}
             />
@@ -1518,7 +1611,7 @@ export default function App() {
               <AuditLogView
                 logs={activityLogs}
                 onExportPDF={() => {
-                  exportActivityLogsReportPDF(activityLogs, currentUser.displayName);
+                  exportActivityLogsReportPDF(activityLogs, currentUser?.displayName || 'Pengguna Awam');
                   showToast('Log Audit PDF Selesai', 'Laporan audit keselamatan dimuat turun.', 'success');
                 }}
                 onExportCSV={() => {
@@ -1568,6 +1661,15 @@ export default function App() {
         onClose={() => setIsNotificationCenterOpen(false)}
         notifications={notifications}
         onMarkAllAsRead={() => {}}
+      />
+
+      {/* Official Login Modal with 6-digit No. Perkhidmatan & Password */}
+      <LoginModal
+        isOpen={isLoginModalOpen}
+        onClose={() => setIsLoginModalOpen(false)}
+        users={users}
+        onLoginSuccess={handleLoginSuccess}
+        onShowToast={showToast}
       />
 
       {/* Toast Notification Container */}
