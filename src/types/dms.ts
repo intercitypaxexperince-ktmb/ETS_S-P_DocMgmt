@@ -26,11 +26,15 @@ export const hasClearance = (
   return userRank >= reqRank;
 };
 
-export const SUPER_ADMIN_EMAIL = 'intercity.pax.experince@gmail.com';
+export const PRIMARY_SUPER_ADMIN_EMAIL = 'intercity.pax.experince@gmail.com';
+export const SUPER_ADMIN_EMAIL = PRIMARY_SUPER_ADMIN_EMAIL;
+export const MAX_SUPER_ADMINS = 3;
 
 export const isSuperAdmin = (user?: UserProfile | null): boolean => {
   if (!user) return false;
-  return (user.email || '').trim().toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase();
+  if ((user.email || '').trim().toLowerCase() === PRIMARY_SUPER_ADMIN_EMAIL.toLowerCase()) return true;
+  if (user.isSuperAdmin === true) return true;
+  return false;
 };
 
 export const canManageUsers = (user?: UserProfile | null): boolean => {
@@ -46,6 +50,7 @@ export interface UserProfile {
   displayName: string;
   email: string;
   role: UserRole;
+  isSuperAdmin?: boolean; // Tanda hak istimewa Super Admin (Maksimum 3 orang)
   departmentId: string;
   departmentName: string;
   unitId: string;
@@ -476,4 +481,32 @@ export const canManageFolder = (folder: DmsFolder, user?: UserProfile | null): b
   }
   return false;
 };
+
+/**
+ * Semak sama ada pengguna adalah pencipta/pemilik (owner) asal folder.
+ */
+export const isFolderOwner = (folder: DmsFolder, user?: UserProfile | null): boolean => {
+  if (!user) return false;
+  if (folder.creatorId && folder.creatorId === user.uid) return true;
+  if (folder.createdBy) {
+    const creator = folder.createdBy.trim().toLowerCase();
+    const userDisplay = (user.displayName || '').trim().toLowerCase();
+    const userSvc = (user.serviceNumber || '').trim().toLowerCase();
+    if (creator === userDisplay) return true;
+    if (userSvc && (creator.includes(userSvc) || creator === userSvc)) return true;
+    if (creator.includes(userDisplay)) return true;
+  }
+  return false;
+};
+
+/**
+ * Semak sama ada pengguna dibenarkan menyunting nama folder.
+ * SYARAT: HANYA DIBENARKAN KEPADA OWNER (PENCIPTA ASAL) ATAU SUPER ADMIN.
+ */
+export const canEditFolder = (folder: DmsFolder, user?: UserProfile | null): boolean => {
+  if (!user) return false;
+  if (isSuperAdmin(user)) return true;
+  return isFolderOwner(folder, user);
+};
+
 

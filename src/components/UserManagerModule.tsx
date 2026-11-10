@@ -13,6 +13,8 @@ import {
   canManageUsers,
   isSuperAdmin,
   SUPER_ADMIN_EMAIL,
+  PRIMARY_SUPER_ADMIN_EMAIL,
+  MAX_SUPER_ADMINS,
 } from '../types/dms';
 import {
   Users,
@@ -87,6 +89,7 @@ export const UserManagerModule: React.FC<UserManagerModuleProps> = ({
   const [unitId, setUnitId] = useState(departments[0]?.units[0]?.id || '');
   const [clearanceLevel, setClearanceLevel] = useState<ClearanceLevel>('TERHAD');
   const [userStatus, setUserStatus] = useState<AccountStatus>('active');
+  const [isSuperAdminUser, setIsSuperAdminUser] = useState(false);
   const [expiryDate, setExpiryDate] = useState(() => {
     const d = new Date();
     d.setFullYear(d.getFullYear() + 1);
@@ -107,6 +110,8 @@ export const UserManagerModule: React.FC<UserManagerModuleProps> = ({
   const activeCount = users.filter((u) => u.status !== 'inactive' && !isExpired(u.expiryDate)).length;
   const inactiveCount = users.filter((u) => u.status === 'inactive').length;
   const expiredCount = users.filter((u) => isExpired(u.expiryDate)).length;
+  const superAdmins = users.filter((u) => isSuperAdmin(u));
+  const superAdminCount = superAdmins.length;
 
   // Filter users
   const filteredUsers = users.filter((u) => {
@@ -193,18 +198,36 @@ export const UserManagerModule: React.FC<UserManagerModuleProps> = ({
     const selectedDept = departments.find((d) => d.id === departmentId);
     const selectedUnit = selectedDept?.units.find((u) => u.id === unitId);
 
+    // Super Admin Quota & Permission Guard
+    const wasSuper = editingUser ? isSuperAdmin(editingUser) : false;
+    const isEditingPrimarySuperAdmin = editingUser && (editingUser.email || '').trim().toLowerCase() === PRIMARY_SUPER_ADMIN_EMAIL.toLowerCase();
+
+    if (isSuperAdminUser && !wasSuper && superAdminCount >= MAX_SUPER_ADMINS) {
+      setFormError(`Had kuota Super Admin penuh: Hanya maksimum ${MAX_SUPER_ADMINS} Super Admin dibenarkan dalam sistem.`);
+      return;
+    }
+
+    if (editingUser && wasSuper && !isSuperAdminUser && isEditingPrimarySuperAdmin) {
+      setFormError(`Akaun Super Administrator Utama (${PRIMARY_SUPER_ADMIN_EMAIL}) tidak boleh diturunkan taraf.`);
+      return;
+    }
+
+    const effectiveRole: UserRole = isSuperAdminUser ? 'admin' : role;
+    const effectiveClearance: ClearanceLevel = isSuperAdminUser ? 'P&C' : clearanceLevel;
+
     if (editingUser) {
       const updates: Partial<UserProfile> = {
         displayName: displayName.trim(),
         email: email.trim(),
-        role,
+        role: effectiveRole,
         departmentId,
         departmentName: selectedDept?.name || editingUser.departmentName,
         unitId,
         unitName: selectedUnit?.name || editingUser.unitName,
-        clearanceLevel,
+        clearanceLevel: effectiveClearance,
         expiryDate,
         status: userStatus,
+        isSuperAdmin: isSuperAdminUser,
       };
       if (userPassword.trim()) {
         updates.password = userPassword.trim();
@@ -217,15 +240,16 @@ export const UserManagerModule: React.FC<UserManagerModuleProps> = ({
         serviceNumber: cleanNum,
         displayName: displayName.trim(),
         email: email.trim(),
-        role,
+        role: effectiveRole,
         departmentId,
         departmentName: selectedDept?.name || 'Jabatan Pentadbiran',
         unitId,
         unitName: selectedUnit?.name || 'Unit Khidmat',
-        clearanceLevel,
+        clearanceLevel: effectiveClearance,
         avatarUrl: '/src/assets/images/avatar_viewer_analyst_1793580727967.jpg',
         expiryDate,
         status: userStatus,
+        isSuperAdmin: isSuperAdminUser,
         password: userPassword.trim(),
       };
       onCreateUser(newUser);
@@ -235,6 +259,7 @@ export const UserManagerModule: React.FC<UserManagerModuleProps> = ({
     setShowCreateModal(false);
     setEditingUser(null);
     setUserPassword('');
+    setIsSuperAdminUser(false);
   };
 
   const handleOpenEdit = (user: UserProfile) => {
@@ -248,6 +273,7 @@ export const UserManagerModule: React.FC<UserManagerModuleProps> = ({
     setClearanceLevel(user.clearanceLevel);
     setExpiryDate(user.expiryDate);
     setUserStatus(user.status || 'active');
+    setIsSuperAdminUser(isSuperAdmin(user));
     setUserPassword(user.password || '');
     setShowCreateModal(true);
   };
@@ -314,6 +340,7 @@ export const UserManagerModule: React.FC<UserManagerModuleProps> = ({
             setRole('editor');
             setClearanceLevel('TERHAD');
             setUserStatus('active');
+            setIsSuperAdminUser(false);
             setShowCreateModal(true);
           }}
           className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-slate-900 dark:bg-white dark:text-slate-900 rounded-xl hover:opacity-90 transition-opacity shadow-xs self-start sm:self-auto cursor-pointer"
@@ -323,11 +350,20 @@ export const UserManagerModule: React.FC<UserManagerModuleProps> = ({
         </button>
       </div>
 
-      {/* Housekeeping Statistics Bar */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      {/* Housekeeping & Super Admin Statistics Bar */}
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
         <div className="bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
           <p className="text-[11px] font-medium text-slate-500">Jumlah Kakitangan</p>
           <p className="text-lg font-bold text-slate-900 dark:text-white mt-0.5 font-mono">{totalCount}</p>
+        </div>
+        <div className="bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <div className="flex items-center justify-between">
+            <p className="text-[11px] font-medium text-purple-600 dark:text-purple-400">Super Admin (Maks 3)</p>
+            <Shield className="w-3.5 h-3.5 text-purple-500" />
+          </div>
+          <p className="text-lg font-bold text-purple-700 dark:text-purple-300 mt-0.5 font-mono">
+            {superAdminCount} <span className="text-xs font-normal text-slate-400">/ {MAX_SUPER_ADMINS}</span>
+          </p>
         </div>
         <div className="bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
           <div className="flex items-center justify-between">
@@ -338,14 +374,14 @@ export const UserManagerModule: React.FC<UserManagerModuleProps> = ({
         </div>
         <div className="bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
           <div className="flex items-center justify-between">
-            <p className="text-[11px] font-medium text-amber-600 dark:text-amber-400">Tidak Aktif (Inactive)</p>
+            <p className="text-[11px] font-medium text-amber-600 dark:text-amber-400">Tidak Aktif</p>
             <UserX className="w-3.5 h-3.5 text-amber-500" />
           </div>
           <p className="text-lg font-bold text-amber-700 dark:text-amber-300 mt-0.5 font-mono">{inactiveCount}</p>
         </div>
         <div className="bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
           <div className="flex items-center justify-between">
-            <p className="text-[11px] font-medium text-rose-600 dark:text-rose-400">Tamat Tempoh Sah</p>
+            <p className="text-[11px] font-medium text-rose-600 dark:text-rose-400">Tamat Tempoh</p>
             <Clock className="w-3.5 h-3.5 text-rose-500" />
           </div>
           <p className="text-lg font-bold text-rose-700 dark:text-rose-300 mt-0.5 font-mono">{expiredCount}</p>
@@ -487,7 +523,8 @@ export const UserManagerModule: React.FC<UserManagerModuleProps> = ({
               ) : (
                 filteredUsers.map((user) => {
                   const expired = isExpired(user.expiryDate);
-                  const isSuper = user.email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase() || user.serviceNumber === '990001';
+                  const isSuper = isSuperAdmin(user);
+                  const isPrimarySuper = (user.email || '').trim().toLowerCase() === PRIMARY_SUPER_ADMIN_EMAIL.toLowerCase();
                   const isCurrent = currentUser?.uid === user.uid;
                   const isInactive = user.status === 'inactive';
 
@@ -512,7 +549,7 @@ export const UserManagerModule: React.FC<UserManagerModuleProps> = ({
                             className="w-8 h-8 rounded-lg object-cover"
                           />
                           <div>
-                            <div className="flex items-center gap-1.5">
+                            <div className="flex items-center gap-1.5 flex-wrap">
                               <p className="font-semibold text-slate-900 dark:text-white">
                                 {user.displayName}
                                 {isCurrent && (
@@ -522,8 +559,8 @@ export const UserManagerModule: React.FC<UserManagerModuleProps> = ({
                                 )}
                               </p>
                               {isSuper && (
-                                <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300">
-                                  SUPER ADMIN
+                                <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                                  SUPER ADMIN {isPrimarySuper ? '(UTAMA)' : ''}
                                 </span>
                               )}
                             </div>
@@ -564,7 +601,7 @@ export const UserManagerModule: React.FC<UserManagerModuleProps> = ({
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
-                            <CheckCircle2 className="w-3 h-3" />
+                            <CheckCircle2 className="w-3.5 h-3.5" />
                             <span>Aktif</span>
                           </span>
                         )}
@@ -583,8 +620,10 @@ export const UserManagerModule: React.FC<UserManagerModuleProps> = ({
                       <td className="px-4 py-3.5 text-right whitespace-nowrap">
                         <div className="flex items-center justify-end gap-1.5">
                           {/* Toggle Inactive/Active */}
-                          {isSuper ? (
-                            <span className="text-[10px] text-slate-400 px-2 py-1 italic">Dilindungi</span>
+                          {isPrimarySuper ? (
+                            <span className="text-[10px] text-purple-600 dark:text-purple-400 font-semibold px-2 py-1 bg-purple-50 dark:bg-purple-950/60 rounded border border-purple-200 dark:border-purple-800">
+                              Super Admin Utama
+                            </span>
                           ) : (
                             <>
                               {isInactive ? (
@@ -942,6 +981,77 @@ export const UserManagerModule: React.FC<UserManagerModuleProps> = ({
                     ))}
                   </select>
                 </div>
+              </div>
+
+              {/* Hak Akses Super Administrator (Maksimum 3 Orang) */}
+              <div className="p-3.5 bg-purple-50/70 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-900 rounded-xl space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-lg bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 flex items-center justify-center shrink-0">
+                      <Shield className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <p className="font-bold text-xs text-purple-950 dark:text-purple-200">
+                        Status Kuasa Super Administrator
+                      </p>
+                      <p className="text-[10px] text-purple-700 dark:text-purple-400">
+                        Maksimum 3 Super Admin dibenarkan dalam sistem ETS Document Management.
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-white dark:bg-slate-900 text-purple-700 dark:text-purple-300 border border-purple-300 dark:border-purple-800 shrink-0">
+                    Kuota: {superAdminCount} / {MAX_SUPER_ADMINS}
+                  </span>
+                </div>
+
+                {editingUser && (editingUser.email || '').trim().toLowerCase() === PRIMARY_SUPER_ADMIN_EMAIL.toLowerCase() ? (
+                  <div className="p-2.5 bg-white dark:bg-slate-900 rounded-lg border border-purple-200 dark:border-purple-800 text-[11px] text-purple-800 dark:text-purple-300 flex items-center justify-between">
+                    <span className="font-semibold">Super Administrator Utama ({PRIMARY_SUPER_ADMIN_EMAIL})</span>
+                    <span className="text-[10px] font-bold text-purple-600 bg-purple-100 dark:bg-purple-950 px-2 py-0.5 rounded">
+                      KEKAL DILINDUNGI
+                    </span>
+                  </div>
+                ) : (
+                  <label
+                    className={`flex items-start gap-2.5 p-2.5 rounded-lg border text-xs transition-colors ${
+                      isSuperAdminUser
+                        ? 'bg-white dark:bg-slate-900 border-purple-500 ring-1 ring-purple-500 shadow-2xs'
+                        : (!editingUser || !isSuperAdmin(editingUser)) && superAdminCount >= MAX_SUPER_ADMINS
+                        ? 'bg-slate-100 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700 opacity-60 cursor-not-allowed'
+                        : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 hover:border-purple-300 cursor-pointer'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      disabled={(!editingUser || !isSuperAdmin(editingUser)) && superAdminCount >= MAX_SUPER_ADMINS}
+                      checked={isSuperAdminUser}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setIsSuperAdminUser(checked);
+                        if (checked) {
+                          setRole('admin');
+                          setClearanceLevel('P&C');
+                        }
+                      }}
+                      className="mt-0.5 rounded text-purple-600 focus:ring-purple-500 cursor-pointer"
+                    />
+                    <div className="flex-1">
+                      <span className="font-semibold text-slate-900 dark:text-white flex items-center gap-1.5">
+                        <span>Lantik Sebagai Super Administrator</span>
+                        {isSuperAdminUser && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-purple-100 text-purple-700">
+                            AKTIF
+                          </span>
+                        )}
+                      </span>
+                      <p className="text-[10.5px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
+                        {(!editingUser || !isSuperAdmin(editingUser)) && superAdminCount >= MAX_SUPER_ADMINS
+                          ? `Had kuota maksimum (${MAX_SUPER_ADMINS} Super Admin) telah dicapai. Nyah-lantik Super Admin lain terlebih dahulu.`
+                          : 'Diberikan kuasa penuh mentadbir sistem, memadam fail, serta menyunting nama dan akses folder.'}
+                      </p>
+                    </div>
+                  </label>
+                )}
               </div>
 
               {/* Role & Clearance */}

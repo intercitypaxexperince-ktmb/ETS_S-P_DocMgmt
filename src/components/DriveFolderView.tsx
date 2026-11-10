@@ -15,6 +15,8 @@ import {
   hasClearance,
   isSuperAdmin,
   canManageFolder,
+  canEditFolder,
+  isFolderOwner,
   canDeleteDocument,
 } from '../types/dms';
 import {
@@ -37,6 +39,7 @@ import {
   Download,
   Eye,
   Trash2,
+  Edit2,
   Move,
   Lock,
   Clock,
@@ -199,10 +202,10 @@ export const DriveFolderView: React.FC<DriveFolderViewProps> = ({
       else onShowToast('Akses Terhad', 'Sila log masuk dengan No. Perkhidmatan untuk menyunting folder.', 'error');
       return;
     }
-    if (!canManageFolder(f, currentUser)) {
+    if (!canEditFolder(f, currentUser)) {
       onShowToast(
-        'Akses Terhad',
-        'Tetapan akses folder ini hanya dibenarkan untuk Owner (pencipta), Pentadbir (Admin) atau Super Admin.',
+        'Akses Terhad: Sunting Nama Folder',
+        'Suntingan nama folder HANYA dibenarkan kepada Pencipta/Owner asal folder atau Super Admin sahaja.',
         'error'
       );
       return;
@@ -362,10 +365,21 @@ export const DriveFolderView: React.FC<DriveFolderViewProps> = ({
           </div>
 
           {/* Quick Actions */}
-          <div className="flex items-center gap-2.5 shrink-0">
+          <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
+            {currentFolder && canEditFolder(currentFolder, currentUser) && (
+              <button
+                onClick={() => handleOpenEditFolder(currentFolder)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 transition-colors shadow-2xs cursor-pointer"
+                title="Sunting Nama & Tetapan Folder Semasa (Owner / Super Admin Sahaja)"
+              >
+                <Edit2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                <span>Sunting Nama Folder</span>
+              </button>
+            )}
+
             <button
               onClick={handleOpenCreateFolder}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 transition-colors cursor-pointer"
             >
               <FolderPlus className="w-4 h-4 text-amber-500" />
               <span>Folder Baharu</span>
@@ -447,7 +461,8 @@ export const DriveFolderView: React.FC<DriveFolderViewProps> = ({
               const colorCfg = FOLDER_COLORS[f.color || 'blue'] || FOLDER_COLORS.blue;
               const docCount = documents.filter((d) => d.folderId === f.id).length;
               const subCount = folders.filter((sf) => sf.parentId === f.id).length;
-              const isManager = canManageFolder(f, currentUser);
+              const canEdit = canEditFolder(f, currentUser);
+              const canManage = canManageFolder(f, currentUser);
 
               return (
                 <div
@@ -484,28 +499,39 @@ export const DriveFolderView: React.FC<DriveFolderViewProps> = ({
                       {docCount} fail {subCount > 0 && `· ${subCount} sub`}
                     </span>
 
-                    {isManager ? (
-                      <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1">
+                      {canEdit && (
                         <button
-                          onClick={() => handleOpenEditFolder(f)}
-                          className="p-1 hover:text-slate-900 dark:hover:text-white rounded"
-                          title="Tetapan Akses & Kumpulan (Owner/Admin)"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenEditFolder(f);
+                          }}
+                          className="p-1 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition-colors"
+                          title="Sunting Nama & Tetapan Folder (Owner / Super Admin)"
                         >
-                          <Shield className="w-3.5 h-3.5" />
+                          <Edit2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
                         </button>
+                      )}
+
+                      {canManage && (
                         <button
-                          onClick={() => handleDeleteFolderInitiate(f)}
-                          className="p-1 hover:text-rose-600 rounded"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteFolderInitiate(f);
+                          }}
+                          className="p-1 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded transition-colors"
                           title="Padam Folder (Hanya jika kosong)"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
-                      </div>
-                    ) : (
-                      <span className="text-[10px] text-slate-400">
-                        {f.createdBy ? `${f.createdBy.split(' ')[0]}` : ''}
-                      </span>
-                    )}
+                      )}
+
+                      {!canEdit && !canManage && (
+                        <span className="text-[10px] text-slate-400">
+                          {f.createdBy ? `${f.createdBy.split(' ')[0]}` : ''}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
               );
@@ -752,7 +778,7 @@ export const DriveFolderView: React.FC<DriveFolderViewProps> = ({
               <div className="flex items-center gap-2">
                 <Folder className="w-5 h-5 text-amber-500" />
                 <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                  {editingFolder ? 'Tetapan & Akses Folder' : 'Cipta Folder Baharu'}
+                  {editingFolder ? 'Sunting Nama & Tetapan Folder' : 'Cipta Folder Baharu'}
                 </h3>
               </div>
               <button
@@ -762,6 +788,18 @@ export const DriveFolderView: React.FC<DriveFolderViewProps> = ({
                 <X className="w-5 h-5" />
               </button>
             </div>
+
+            {editingFolder && (
+              <div className="mx-6 mt-4 p-2.5 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded-xl text-[11px] text-indigo-800 dark:text-indigo-300 flex items-center justify-between">
+                <span className="flex items-center gap-1.5 font-medium">
+                  <Shield className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                  <span>Akses: Dibenarkan kepada Owner ({editingFolder.createdBy || 'Sistem'}) & Super Admin</span>
+                </span>
+                <span className="text-[10px] bg-white dark:bg-slate-900 px-2 py-0.5 rounded font-mono border border-indigo-200 dark:border-indigo-800">
+                  ID: {editingFolder.id}
+                </span>
+              </div>
+            )}
 
             <form onSubmit={handleSaveFolder} className="p-6 space-y-4">
               <div className="space-y-1">
@@ -876,7 +914,7 @@ export const DriveFolderView: React.FC<DriveFolderViewProps> = ({
                   type="submit"
                   className="px-5 py-2 text-xs font-medium bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900 rounded-lg shadow-xs"
                 >
-                  {editingFolder ? 'Simpan Folder' : 'Cipta Folder'}
+                  {editingFolder ? 'Simpan Nama & Tetapan Folder' : 'Cipta Folder'}
                 </button>
               </div>
             </form>

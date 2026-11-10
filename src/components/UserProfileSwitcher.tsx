@@ -4,7 +4,7 @@
  */
 
 import React, { useState } from 'react';
-import { UserProfile, UserRole } from '../types/dms';
+import { UserProfile, UserRole, isSuperAdmin } from '../types/dms';
 import {
   Shield,
   ChevronDown,
@@ -67,7 +67,7 @@ export const UserProfileSwitcher: React.FC<UserProfileSwitcherProps> = ({
     );
   }
 
-  const isSuperAdmin = currentUser.email === 'intercity.pax.experince@gmail.com';
+  const isSuperAdminUser = isSuperAdmin(currentUser);
 
   return (
     <div className="relative inline-block text-left">
@@ -137,7 +137,7 @@ export const UserProfileSwitcher: React.FC<UserProfileSwitcherProps> = ({
                     <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 bg-slate-200/80 dark:bg-slate-700 text-slate-800 dark:text-slate-200 rounded">
                       #{currentUser.serviceNumber}
                     </span>
-                    {isSuperAdmin && (
+                    {isSuperAdminUser && (
                       <span className="text-[9px] font-bold px-1.5 py-0.5 bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300 rounded border border-purple-200 dark:border-purple-800">
                         SUPER ADMIN
                       </span>

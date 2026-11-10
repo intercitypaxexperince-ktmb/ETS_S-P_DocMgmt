@@ -21,10 +21,13 @@ import {
   canManageUsers,
   isSuperAdmin,
   SUPER_ADMIN_EMAIL,
+  PRIMARY_SUPER_ADMIN_EMAIL,
+  MAX_SUPER_ADMINS,
   UserGroup,
   DmsFolder,
   canDeleteDocument,
   canManageFolder,
+  canEditFolder,
 } from './types/dms';
 import {
   INITIAL_DEPARTMENTS,
@@ -720,12 +723,22 @@ export default function App() {
       showToast('Akses Ditolak', 'Hanya Pentadbir dibenarkan mendaftarkan pengguna baharu.', 'error');
       return;
     }
+
+    if (newUser.isSuperAdmin) {
+      const currentSuperAdmins = users.filter((u) => isSuperAdmin(u));
+      if (currentSuperAdmins.length >= MAX_SUPER_ADMINS) {
+        showToast('Had Kuota Super Admin', `Hanya maksimum ${MAX_SUPER_ADMINS} Super Admin dibenarkan dalam sistem.`, 'error');
+        return;
+      }
+    }
+
     setUsers((prev) => [...prev, newUser]);
+    const superAdminTag = newUser.isSuperAdmin ? ' [SUPER ADMIN]' : '';
     logActivity(
       'CIPTA_PENGGUNA',
       undefined,
       undefined,
-      `Mendaftar akaun anggota: ${newUser.displayName} (No. Servis: ${newUser.serviceNumber}, Peranan: ${newUser.role.toUpperCase()}, Luput: ${newUser.expiryDate}).`
+      `Mendaftar akaun anggota: ${newUser.displayName} (No. Servis: ${newUser.serviceNumber}, Peranan: ${newUser.role.toUpperCase()}${superAdminTag}, Luput: ${newUser.expiryDate}).`
     );
     showToast('Pengguna Didaftarkan', `Anggota #${newUser.serviceNumber} (${newUser.displayName}) berjaya didaftarkan.`, 'success');
   };
@@ -735,6 +748,16 @@ export default function App() {
       showToast('Akses Ditolak', 'Hanya Pentadbir dibenarkan mengemaskini pengguna.', 'error');
       return;
     }
+
+    const targetUser = users.find((u) => u.uid === userId);
+    if (updates.isSuperAdmin === true && targetUser && !isSuperAdmin(targetUser)) {
+      const currentSuperAdmins = users.filter((u) => isSuperAdmin(u));
+      if (currentSuperAdmins.length >= MAX_SUPER_ADMINS) {
+        showToast('Had Kuota Super Admin', `Hanya maksimum ${MAX_SUPER_ADMINS} Super Admin dibenarkan dalam sistem.`, 'error');
+        return;
+      }
+    }
+
     setUsers((prev) =>
       prev.map((u) => (u.uid === userId ? { ...u, ...updates } : u))
     );
@@ -754,13 +777,18 @@ export default function App() {
     const targetUser = users.find((u) => u.uid === userId);
     if (!targetUser) return;
 
-    // Guard against deleting Super Admin
+    // Guard against deleting Primary Super Admin
     if (
-      isSuperAdmin(targetUser) ||
-      targetUser.email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase() ||
+      (targetUser.email && targetUser.email.toLowerCase() === PRIMARY_SUPER_ADMIN_EMAIL.toLowerCase()) ||
       targetUser.serviceNumber === '990001'
     ) {
       showToast('Tindakan Disekat', 'Akaun Super Administrator utama sistem tidak boleh dipadam.', 'error');
+      return;
+    }
+
+    // Non-primary Super Admin can only be deleted by another Super Admin
+    if (isSuperAdmin(targetUser) && !isSuperAdmin(currentUser)) {
+      showToast('Akses Ditolak', 'Hanya Super Administrator dibenarkan memadam akaun Super Admin.', 'error');
       return;
     }
 
@@ -794,8 +822,7 @@ export default function App() {
     if (!targetUser) return;
 
     if (
-      isSuperAdmin(targetUser) ||
-      targetUser.email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase() ||
+      (targetUser.email && targetUser.email.toLowerCase() === PRIMARY_SUPER_ADMIN_EMAIL.toLowerCase()) ||
       targetUser.serviceNumber === '990001'
     ) {
       showToast('Tindakan Disekat', 'Status akaun Super Administrator utama tidak boleh diubah.', 'error');
@@ -1344,11 +1371,22 @@ export default function App() {
   };
 
   const handleUpdateFolder = (folderId: string, updates: Partial<DmsFolder>) => {
+    const targetFolder = folders.find((f) => f.id === folderId);
+    if (!targetFolder) return;
+
+    if (!canEditFolder(targetFolder, currentUser)) {
+      showToast('Akses Ditolak', 'Suntingan nama folder hanya dibenarkan kepada Pencipta/Owner asal atau Super Admin sahaja.', 'error');
+      return;
+    }
+
     setFolders((prev) =>
       prev.map((f) => (f.id === folderId ? { ...f, ...updates } : f))
     );
-    logActivity('KEMASKINI_FOLDER', undefined, undefined, `Mengemaskini tetapan folder #${folderId}.`);
-    showToast('Folder Dikemaskini', 'Maklumat folder berjaya disimpan.', 'success');
+    const oldName = targetFolder.name;
+    const newName = updates.name || oldName;
+    const nameChangeMsg = updates.name && updates.name !== oldName ? ` (Nama diubah: "${oldName}" -> "${newName}")` : '';
+    logActivity('KEMASKINI_FOLDER', undefined, undefined, `Mengemaskini folder "${newName}"${nameChangeMsg}.`);
+    showToast('Folder Dikemaskini', `Folder "${newName}" berjaya dikemaskini.`, 'success');
   };
 
   const handleDeleteFolder = (folderId: string) => {
