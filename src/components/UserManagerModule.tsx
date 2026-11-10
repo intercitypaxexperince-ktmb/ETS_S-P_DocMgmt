@@ -9,6 +9,7 @@ import {
   UserRole,
   ClearanceLevel,
   Department,
+  AccountStatus,
   canManageUsers,
   isSuperAdmin,
   SUPER_ADMIN_EMAIL,
@@ -32,6 +33,11 @@ import {
   EyeOff,
   ShieldAlert,
   Sparkles,
+  UserCheck,
+  UserX,
+  Power,
+  AlertCircle,
+  Info,
 } from 'lucide-react';
 
 interface UserManagerModuleProps {
@@ -40,6 +46,8 @@ interface UserManagerModuleProps {
   currentUser: UserProfile | null;
   onCreateUser: (newUser: UserProfile) => void;
   onUpdateUser: (userId: string, updates: Partial<UserProfile>) => void;
+  onDeleteUser: (userId: string) => void;
+  onToggleUserStatus: (userId: string, targetStatus: 'active' | 'inactive') => void;
   onLoginWithCredentials: (serviceNumber: string, password: string) => boolean;
   onShowToast: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
 }
@@ -50,13 +58,17 @@ export const UserManagerModule: React.FC<UserManagerModuleProps> = ({
   currentUser,
   onCreateUser,
   onUpdateUser,
+  onDeleteUser,
+  onToggleUserStatus,
   onLoginWithCredentials,
   onShowToast,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('semua');
+  const [statusFilter, setStatusFilter] = useState<string>('semua');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
+  const [userToDelete, setUserToDelete] = useState<UserProfile | null>(null);
 
   // Secure Login with Service Number & Password
   const [loginServiceNum, setLoginServiceNum] = useState('');
@@ -74,6 +86,7 @@ export const UserManagerModule: React.FC<UserManagerModuleProps> = ({
   const [departmentId, setDepartmentId] = useState(departments[0]?.id || 'dept_it');
   const [unitId, setUnitId] = useState(departments[0]?.units[0]?.id || '');
   const [clearanceLevel, setClearanceLevel] = useState<ClearanceLevel>('TERHAD');
+  const [userStatus, setUserStatus] = useState<AccountStatus>('active');
   const [expiryDate, setExpiryDate] = useState(() => {
     const d = new Date();
     d.setFullYear(d.getFullYear() + 1);
@@ -83,6 +96,17 @@ export const UserManagerModule: React.FC<UserManagerModuleProps> = ({
 
   const isAuthorized = canManageUsers(currentUser);
   const currentUnits = departments.find((d) => d.id === departmentId)?.units || [];
+
+  const isExpired = (dateStr?: string) => {
+    if (!dateStr) return false;
+    return new Date(dateStr).getTime() < new Date().getTime();
+  };
+
+  // Stats calculation
+  const totalCount = users.length;
+  const activeCount = users.filter((u) => u.status !== 'inactive' && !isExpired(u.expiryDate)).length;
+  const inactiveCount = users.filter((u) => u.status === 'inactive').length;
+  const expiredCount = users.filter((u) => isExpired(u.expiryDate)).length;
 
   // Filter users
   const filteredUsers = users.filter((u) => {
@@ -94,6 +118,17 @@ export const UserManagerModule: React.FC<UserManagerModuleProps> = ({
       if (!matchesNum && !matchesName && !matchesDept) return false;
     }
     if (roleFilter !== 'semua' && u.role !== roleFilter) return false;
+
+    if (statusFilter === 'active' && (u.status === 'inactive' || isExpired(u.expiryDate))) {
+      return false;
+    }
+    if (statusFilter === 'inactive' && u.status !== 'inactive') {
+      return false;
+    }
+    if (statusFilter === 'expired' && !isExpired(u.expiryDate)) {
+      return false;
+    }
+
     return true;
   });
 
@@ -115,7 +150,7 @@ export const UserManagerModule: React.FC<UserManagerModuleProps> = ({
       setLoginServiceNum('');
       setLoginPassword('');
     } else {
-      setLoginError('No. Perkhidmatan atau kata laluan tidak tepat, atau akaun telah tamat tempoh.');
+      setLoginError('No. Perkhidmatan atau kata laluan tidak tepat, atau akaun telah dinyahaktifkan / tamat tempoh.');
     }
   };
 
@@ -169,12 +204,13 @@ export const UserManagerModule: React.FC<UserManagerModuleProps> = ({
         unitName: selectedUnit?.name || editingUser.unitName,
         clearanceLevel,
         expiryDate,
+        status: userStatus,
       };
       if (userPassword.trim()) {
         updates.password = userPassword.trim();
       }
       onUpdateUser(editingUser.uid, updates);
-      onShowToast('Pengguna Dikemaskini', `Maklumat akaun ${cleanNum} berjaya dikemaskini.`, 'success');
+      onShowToast('Pengguna Dikemaskini', `Maklumat akaun #${cleanNum} berjaya dikemaskini.`, 'success');
     } else {
       const newUser: UserProfile = {
         uid: `user_${Date.now()}`,
@@ -189,7 +225,7 @@ export const UserManagerModule: React.FC<UserManagerModuleProps> = ({
         clearanceLevel,
         avatarUrl: '/src/assets/images/avatar_viewer_analyst_1793580727967.jpg',
         expiryDate,
-        status: 'active',
+        status: userStatus,
         password: userPassword.trim(),
       };
       onCreateUser(newUser);
@@ -211,13 +247,15 @@ export const UserManagerModule: React.FC<UserManagerModuleProps> = ({
     setUnitId(user.unitId);
     setClearanceLevel(user.clearanceLevel);
     setExpiryDate(user.expiryDate);
+    setUserStatus(user.status || 'active');
     setUserPassword(user.password || '');
     setShowCreateModal(true);
   };
 
-  const isExpired = (dateStr?: string) => {
-    if (!dateStr) return false;
-    return new Date(dateStr).getTime() < new Date().getTime();
+  const handleConfirmDelete = () => {
+    if (!userToDelete) return;
+    onDeleteUser(userToDelete.uid);
+    setUserToDelete(null);
   };
 
   // If user is not admin or super admin, show security restriction
@@ -233,7 +271,7 @@ export const UserManagerModule: React.FC<UserManagerModuleProps> = ({
           </h3>
           <p className="text-xs text-rose-700 dark:text-rose-400 mt-2 max-w-md mx-auto leading-relaxed">
             Modul ini dihadkan secara ketat kepada <strong>Pentadbir Sistem (Admin)</strong> dan{' '}
-            <strong>Super Admin ({SUPER_ADMIN_EMAIL})</strong> sahaja bagi memastikan integriti kawalan pengguna dan kata laluan.
+            <strong>Super Admin ({SUPER_ADMIN_EMAIL})</strong> sahaja bagi memastikan integriti kawalan pengguna, kata laluan, dan housekeeping akaun.
           </p>
         </div>
         <div className="pt-2">
@@ -253,7 +291,7 @@ export const UserManagerModule: React.FC<UserManagerModuleProps> = ({
           <div className="flex items-center gap-2">
             <h2 className="text-lg font-bold text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
               <Users className="w-5 h-5 text-blue-600" />
-              <span>Modul Pengurusan Pengguna & Kawalan Kata Laluan</span>
+              <span>Modul Pengurusan Pengguna & Housekeeping Akaun</span>
             </h2>
             {isSuperAdmin(currentUser) && (
               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-950/80 text-purple-700 dark:text-purple-300 border border-purple-300">
@@ -262,7 +300,7 @@ export const UserManagerModule: React.FC<UserManagerModuleProps> = ({
             )}
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
-            Kawalan akses akaun, pendaftaran No. Perkhidmatan (6 digit), kata laluan selamat, dan tarikh luput akaun.
+            Kawalan akses akaun, pendaftaran No. Perkhidmatan (6 digit), kata laluan selamat, penyahaktifan (inactive), dan pemadaman pengguna (housekeeping).
           </p>
         </div>
 
@@ -275,13 +313,43 @@ export const UserManagerModule: React.FC<UserManagerModuleProps> = ({
             setUserPassword('');
             setRole('editor');
             setClearanceLevel('TERHAD');
+            setUserStatus('active');
             setShowCreateModal(true);
           }}
-          className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-slate-900 dark:bg-white dark:text-slate-900 rounded-xl hover:opacity-90 transition-opacity shadow-xs self-start sm:self-auto"
+          className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-slate-900 dark:bg-white dark:text-slate-900 rounded-xl hover:opacity-90 transition-opacity shadow-xs self-start sm:self-auto cursor-pointer"
         >
           <UserPlus className="w-4 h-4" />
           <span>+ Cipta Pengguna Baharu</span>
         </button>
+      </div>
+
+      {/* Housekeeping Statistics Bar */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <p className="text-[11px] font-medium text-slate-500">Jumlah Kakitangan</p>
+          <p className="text-lg font-bold text-slate-900 dark:text-white mt-0.5 font-mono">{totalCount}</p>
+        </div>
+        <div className="bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <div className="flex items-center justify-between">
+            <p className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">Akaun Aktif</p>
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+          </div>
+          <p className="text-lg font-bold text-emerald-700 dark:text-emerald-300 mt-0.5 font-mono">{activeCount}</p>
+        </div>
+        <div className="bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <div className="flex items-center justify-between">
+            <p className="text-[11px] font-medium text-amber-600 dark:text-amber-400">Tidak Aktif (Inactive)</p>
+            <UserX className="w-3.5 h-3.5 text-amber-500" />
+          </div>
+          <p className="text-lg font-bold text-amber-700 dark:text-amber-300 mt-0.5 font-mono">{inactiveCount}</p>
+        </div>
+        <div className="bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <div className="flex items-center justify-between">
+            <p className="text-[11px] font-medium text-rose-600 dark:text-rose-400">Tamat Tempoh Sah</p>
+            <Clock className="w-3.5 h-3.5 text-rose-500" />
+          </div>
+          <p className="text-lg font-bold text-rose-700 dark:text-rose-300 mt-0.5 font-mono">{expiredCount}</p>
+        </div>
       </div>
 
       {/* Secure Authentication Login Bar (No Quick Login) */}
@@ -299,7 +367,7 @@ export const UserManagerModule: React.FC<UserManagerModuleProps> = ({
                 </span>
               </p>
               <p className="text-[11px] text-slate-500">
-                Log masuk memerlukan padanan No. Perkhidmatan (6 aksara) serta kata laluan akaun pengguna.
+                Log masuk memerlukan padanan No. Perkhidmatan (6 aksara) serta kata laluan akaun pengguna yang berstatus aktif.
               </p>
             </div>
           </div>
@@ -331,7 +399,7 @@ export const UserManagerModule: React.FC<UserManagerModuleProps> = ({
             </div>
             <button
               type="submit"
-              className="flex items-center justify-center gap-1.5 px-3.5 py-1.5 bg-slate-900 text-white dark:bg-white dark:text-slate-900 rounded-lg text-xs font-semibold hover:opacity-90 shrink-0"
+              className="flex items-center justify-center gap-1.5 px-3.5 py-1.5 bg-slate-900 text-white dark:bg-white dark:text-slate-900 rounded-lg text-xs font-semibold hover:opacity-90 shrink-0 cursor-pointer"
             >
               <LogIn className="w-3.5 h-3.5" />
               <span>Sahkan & Log Masuk</span>
@@ -359,18 +427,36 @@ export const UserManagerModule: React.FC<UserManagerModuleProps> = ({
           />
         </div>
 
-        <div className="flex items-center gap-2">
-          <span className="text-slate-400 font-medium">Peranan:</span>
-          <select
-            value={roleFilter}
-            onChange={(e) => setRoleFilter(e.target.value)}
-            className="px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-900 dark:text-white font-medium"
-          >
-            <option value="semua">Semua Peranan</option>
-            <option value="admin">Admin Sahaja</option>
-            <option value="editor">Editor Sahaja</option>
-            <option value="viewer">Viewer Sahaja</option>
-          </select>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Status Filter */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-slate-400 font-medium">Status:</span>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-900 dark:text-white font-medium"
+            >
+              <option value="semua">Semua Status</option>
+              <option value="active">Aktif Sahaja</option>
+              <option value="inactive">Tidak Aktif (Inactive)</option>
+              <option value="expired">Tamat Tempoh (Luput)</option>
+            </select>
+          </div>
+
+          {/* Role Filter */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-slate-400 font-medium">Peranan:</span>
+            <select
+              value={roleFilter}
+              onChange={(e) => setRoleFilter(e.target.value)}
+              className="px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-900 dark:text-white font-medium"
+            >
+              <option value="semua">Semua Peranan</option>
+              <option value="admin">Admin Sahaja</option>
+              <option value="editor">Editor Sahaja</option>
+              <option value="viewer">Viewer Sahaja</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -386,101 +472,268 @@ export const UserManagerModule: React.FC<UserManagerModuleProps> = ({
                 <th className="px-3 py-3 font-semibold">Akses</th>
                 <th className="px-3 py-3 font-semibold">Tapisan</th>
                 <th className="px-3 py-3 font-semibold">Kata Laluan</th>
+                <th className="px-3 py-3 font-semibold">Status Akaun</th>
                 <th className="px-4 py-3 font-semibold">Tempoh Sah</th>
-                <th className="px-4 py-3 font-semibold text-right">Tindakan</th>
+                <th className="px-4 py-3 font-semibold text-right">Tindakan Housekeeping</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {filteredUsers.map((user) => {
-                const expired = isExpired(user.expiryDate);
-                const isSuper = user.email === SUPER_ADMIN_EMAIL;
-                return (
-                  <tr
-                    key={user.uid}
-                    className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors"
-                  >
-                    <td className="px-4 py-3.5 whitespace-nowrap">
-                      <span className="font-mono font-bold text-xs px-2 py-1 rounded bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white border border-slate-200 dark:border-slate-700">
-                        {user.serviceNumber || '882104'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <div className="flex items-center gap-3">
-                        <img
-                          src={user.avatarUrl}
-                          alt={user.displayName}
-                          referrerPolicy="no-referrer"
-                          className="w-8 h-8 rounded-lg object-cover"
-                        />
-                        <div>
-                          <div className="flex items-center gap-1.5">
-                            <p className="font-semibold text-slate-900 dark:text-white">{user.displayName}</p>
-                            {isSuper && (
-                              <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300">
-                                SUPER ADMIN
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-[11px] text-slate-400">{user.email}</p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3.5 whitespace-nowrap">
-                      <p className="font-medium text-slate-800 dark:text-slate-200">{user.departmentName}</p>
-                      <p className="text-[11px] text-slate-400">{user.unitName}</p>
-                    </td>
-                    <td className="px-3 py-3.5 whitespace-nowrap">
-                      <span className="font-bold uppercase text-[11px] text-slate-800 dark:text-slate-200">
-                        {user.role}
-                      </span>
-                    </td>
-                    <td className="px-3 py-3.5 whitespace-nowrap">
-                      <span className="font-mono text-[11px] font-semibold text-rose-600 dark:text-rose-400">
-                        {user.clearanceLevel === 'RAHSIA_BESAR' ? 'P&C' : user.clearanceLevel}
-                      </span>
-                    </td>
-                    <td className="px-3 py-3.5 whitespace-nowrap">
-                      <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-                        <Lock className="w-3 h-3" />
-                        <span>Kunci Aktif</span>
-                      </span>
-                    </td>
-                    <td className="px-4 py-3.5 whitespace-nowrap">
-                      <div className="flex items-center gap-1.5">
-                        <span
-                          className={`font-mono tabular-nums ${
-                            expired ? 'text-rose-600 font-bold' : 'text-slate-600 dark:text-slate-300'
-                          }`}
-                        >
-                          {new Date(user.expiryDate).toLocaleDateString('ms-MY')}
+              {filteredUsers.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="px-4 py-8 text-center text-slate-400">
+                    Tiada rekod pengguna dijumpai yang menepati tapisan.
+                  </td>
+                </tr>
+              ) : (
+                filteredUsers.map((user) => {
+                  const expired = isExpired(user.expiryDate);
+                  const isSuper = user.email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase() || user.serviceNumber === '990001';
+                  const isCurrent = currentUser?.uid === user.uid;
+                  const isInactive = user.status === 'inactive';
+
+                  return (
+                    <tr
+                      key={user.uid}
+                      className={`hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors ${
+                        isInactive ? 'opacity-70 bg-slate-50/30 dark:bg-slate-900/40' : ''
+                      }`}
+                    >
+                      <td className="px-4 py-3.5 whitespace-nowrap">
+                        <span className="font-mono font-bold text-xs px-2 py-1 rounded bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white border border-slate-200 dark:border-slate-700">
+                          {user.serviceNumber || '882104'}
                         </span>
-                        {expired ? (
-                          <span className="text-[10px] text-rose-600 bg-rose-50 px-1.5 py-0.2 rounded border border-rose-200">
-                            Luput
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <div className="flex items-center gap-3">
+                          <img
+                            src={user.avatarUrl}
+                            alt={user.displayName}
+                            referrerPolicy="no-referrer"
+                            className="w-8 h-8 rounded-lg object-cover"
+                          />
+                          <div>
+                            <div className="flex items-center gap-1.5">
+                              <p className="font-semibold text-slate-900 dark:text-white">
+                                {user.displayName}
+                                {isCurrent && (
+                                  <span className="ml-1.5 text-[9px] font-bold px-1.5 py-0.2 rounded bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+                                    ANDA (SESI AKTIF)
+                                  </span>
+                                )}
+                              </p>
+                              {isSuper && (
+                                <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300">
+                                  SUPER ADMIN
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[11px] text-slate-400">{user.email}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3.5 whitespace-nowrap">
+                        <p className="font-medium text-slate-800 dark:text-slate-200">{user.departmentName}</p>
+                        <p className="text-[11px] text-slate-400">{user.unitName}</p>
+                      </td>
+                      <td className="px-3 py-3.5 whitespace-nowrap">
+                        <span className="font-bold uppercase text-[11px] text-slate-800 dark:text-slate-200">
+                          {user.role}
+                        </span>
+                      </td>
+                      <td className="px-3 py-3.5 whitespace-nowrap">
+                        <span className="font-mono text-[11px] font-semibold text-rose-600 dark:text-rose-400">
+                          {user.clearanceLevel === 'RAHSIA_BESAR' ? 'P&C' : user.clearanceLevel}
+                        </span>
+                      </td>
+                      <td className="px-3 py-3.5 whitespace-nowrap">
+                        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                          <Lock className="w-3 h-3" />
+                          <span>Kunci Aktif</span>
+                        </span>
+                      </td>
+                      <td className="px-3 py-3.5 whitespace-nowrap">
+                        {isInactive ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950/70 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
+                            <UserX className="w-3 h-3" />
+                            <span>Tidak Aktif</span>
+                          </span>
+                        ) : expired ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 dark:bg-rose-950/70 dark:text-rose-300 border border-rose-300 dark:border-rose-800">
+                            <Clock className="w-3 h-3" />
+                            <span>Luput</span>
                           </span>
                         ) : (
-                          <span className="text-[10px] text-emerald-600 font-medium">Aktif</span>
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                            <CheckCircle2 className="w-3 h-3" />
+                            <span>Aktif</span>
+                          </span>
                         )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3.5 text-right whitespace-nowrap">
-                      <div className="flex items-center justify-end gap-1">
-                        <button
-                          onClick={() => handleOpenEdit(user)}
-                          className="p-1.5 text-slate-500 hover:text-slate-900 dark:hover:text-white rounded hover:bg-slate-100 dark:hover:bg-slate-800"
-                          title="Sunting Maklumat, Kata Laluan & Tarikh Luput"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
+                      </td>
+                      <td className="px-4 py-3.5 whitespace-nowrap">
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            className={`font-mono tabular-nums ${
+                              expired ? 'text-rose-600 font-bold' : 'text-slate-600 dark:text-slate-300'
+                            }`}
+                          >
+                            {new Date(user.expiryDate).toLocaleDateString('ms-MY')}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3.5 text-right whitespace-nowrap">
+                        <div className="flex items-center justify-end gap-1.5">
+                          {/* Toggle Inactive/Active */}
+                          {isSuper ? (
+                            <span className="text-[10px] text-slate-400 px-2 py-1 italic">Dilindungi</span>
+                          ) : (
+                            <>
+                              {isInactive ? (
+                                <button
+                                  type="button"
+                                  onClick={() => onToggleUserStatus(user.uid, 'active')}
+                                  title="Aktifkan semula akaun pengguna ini"
+                                  className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 border border-emerald-200 dark:border-emerald-800 rounded-lg cursor-pointer transition-colors"
+                                >
+                                  <UserCheck className="w-3 h-3 text-emerald-600" />
+                                  <span>Aktifkan</span>
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  disabled={isCurrent}
+                                  onClick={() => onToggleUserStatus(user.uid, 'inactive')}
+                                  title={
+                                    isCurrent
+                                      ? 'Akaun sendiri tidak boleh dinyahaktifkan semasa sesi aktif'
+                                      : 'Nyahaktifkan akaun untuk kawalan housekeeping'
+                                  }
+                                  className={`inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-lg border transition-colors ${
+                                    isCurrent
+                                      ? 'text-slate-400 border-slate-200 bg-slate-50 cursor-not-allowed opacity-50'
+                                      : 'text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/60 hover:bg-amber-100 border-amber-200 dark:border-amber-800 cursor-pointer'
+                                  }`}
+                                >
+                                  <UserX className="w-3 h-3 text-amber-600" />
+                                  <span>Inactive</span>
+                                </button>
+                              )}
+
+                              {/* Edit Button */}
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEdit(user)}
+                                className="p-1.5 text-slate-500 hover:text-slate-900 dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer transition-colors"
+                                title="Sunting Maklumat, Status & Kata Laluan"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+
+                              {/* Delete Button for Housekeeping */}
+                              <button
+                                type="button"
+                                disabled={isCurrent}
+                                onClick={() => setUserToDelete(user)}
+                                className={`p-1.5 rounded-lg transition-colors ${
+                                  isCurrent
+                                    ? 'text-slate-300 dark:text-slate-700 cursor-not-allowed'
+                                    : 'text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/50 cursor-pointer'
+                                }`}
+                                title={
+                                  isCurrent
+                                    ? 'Akaun sendiri tidak boleh dipadam'
+                                    : 'Padam akaun pengguna dari sistem (Housekeeping)'
+                                }
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
       </div>
+
+      {/* Confirmation Modal: Delete User (Housekeeping) */}
+      {userToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
+              <div className="w-10 h-10 rounded-full bg-rose-100 dark:bg-rose-950/60 text-rose-600 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                  Sahkan Pemadaman Pengguna (Housekeeping)
+                </h3>
+                <p className="text-[11px] text-slate-500">
+                  Tindakan ini tidak boleh diundur semula.
+                </p>
+              </div>
+            </div>
+
+            {/* Target User Details Card */}
+            <div className="p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 flex items-center gap-3">
+              <img
+                src={userToDelete.avatarUrl}
+                alt={userToDelete.displayName}
+                className="w-10 h-10 rounded-lg object-cover"
+              />
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                  {userToDelete.displayName}
+                </p>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className="font-mono text-[10px] px-1.5 py-0.2 rounded bg-slate-200 dark:bg-slate-700 font-semibold text-slate-800 dark:text-slate-200">
+                    #{userToDelete.serviceNumber}
+                  </span>
+                  <span className="text-[10px] uppercase font-bold text-slate-500">
+                    {userToDelete.role}
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-400 truncate mt-0.5">
+                  {userToDelete.departmentName} · {userToDelete.unitName}
+                </p>
+              </div>
+            </div>
+
+            {/* Explanation text */}
+            <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-xl text-[11px] text-amber-800 dark:text-amber-300 flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 text-amber-600 mt-0.5" />
+              <div>
+                <p className="font-semibold">Nota Housekeeping Pentadbir:</p>
+                <p className="mt-0.5 leading-relaxed text-[10.5px]">
+                  Memadam pengguna ini akan menamatkan hak akses dan mengeluarkan kredensial log masuk dari sistem. Fail-fail yang pernah diwujudkan sebelum ini akan kekal dalam arkib.
+                </p>
+              </div>
+            </div>
+
+            {/* Action buttons */}
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setUserToDelete(null)}
+                className="px-4 py-2 text-xs font-medium text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                className="flex items-center gap-1.5 px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-semibold shadow-xs cursor-pointer transition-colors"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Ya, Padam Pengguna</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal: Create / Edit User */}
       {showCreateModal && (
@@ -488,11 +741,11 @@ export const UserManagerModule: React.FC<UserManagerModuleProps> = ({
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-lg p-6 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
               <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                {editingUser ? 'Kemaskini Maklumat & Kata Laluan Pengguna' : 'Daftar Pengguna Baharu (No. Perkhidmatan & Password)'}
+                {editingUser ? 'Kemaskini Maklumat, Status & Kata Laluan Pengguna' : 'Daftar Pengguna Baharu (No. Perkhidmatan & Password)'}
               </h3>
               <button
                 onClick={() => setShowCreateModal(false)}
-                className="text-slate-400 hover:text-slate-600"
+                className="text-slate-400 hover:text-slate-600 cursor-pointer"
               >
                 ✕
               </button>
@@ -556,7 +809,63 @@ export const UserManagerModule: React.FC<UserManagerModuleProps> = ({
                 </div>
               </div>
 
-              {/* Password Field (User Request) */}
+              {/* Status Akaun (Housekeeping: Aktif vs Inactive) */}
+              <div>
+                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Status Akaun Pengguna (Housekeeping) *
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <label
+                    className={`flex items-center gap-2 p-2.5 rounded-xl border cursor-pointer transition-colors ${
+                      userStatus === 'active'
+                        ? 'border-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-200'
+                        : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="accountStatus"
+                      value="active"
+                      checked={userStatus === 'active'}
+                      onChange={() => setUserStatus('active')}
+                      className="text-emerald-600 focus:ring-emerald-500"
+                    />
+                    <div>
+                      <p className="font-semibold text-xs flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Aktif</span>
+                      </p>
+                      <p className="text-[10px] text-slate-400">Dibenarkan log masuk</p>
+                    </div>
+                  </label>
+
+                  <label
+                    className={`flex items-center gap-2 p-2.5 rounded-xl border cursor-pointer transition-colors ${
+                      userStatus === 'inactive'
+                        ? 'border-amber-500 bg-amber-50/50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200'
+                        : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="accountStatus"
+                      value="inactive"
+                      checked={userStatus === 'inactive'}
+                      onChange={() => setUserStatus('inactive')}
+                      className="text-amber-600 focus:ring-amber-500"
+                    />
+                    <div>
+                      <p className="font-semibold text-xs flex items-center gap-1.5">
+                        <UserX className="w-3.5 h-3.5 text-amber-600" />
+                        <span>Tidak Aktif (Inactive)</span>
+                      </p>
+                      <p className="text-[10px] text-slate-400">Disekat daripada log masuk</p>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              {/* Password Field */}
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="block font-semibold text-slate-700 dark:text-slate-300">
@@ -565,7 +874,7 @@ export const UserManagerModule: React.FC<UserManagerModuleProps> = ({
                   <button
                     type="button"
                     onClick={generateRandomPassword}
-                    className="text-[11px] text-blue-600 hover:underline font-medium flex items-center gap-1"
+                    className="text-[11px] text-blue-600 hover:underline font-medium flex items-center gap-1 cursor-pointer"
                   >
                     <Sparkles className="w-3 h-3" />
                     Jana Kata Laluan Rawak
@@ -583,7 +892,7 @@ export const UserManagerModule: React.FC<UserManagerModuleProps> = ({
                   <button
                     type="button"
                     onClick={() => setShowFormPassword(!showFormPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
                   >
                     {showFormPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                   </button>
@@ -690,13 +999,13 @@ export const UserManagerModule: React.FC<UserManagerModuleProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowCreateModal(false)}
-                  className="px-3 py-1.5 text-slate-500 hover:text-slate-800"
+                  className="px-3 py-1.5 text-slate-500 hover:text-slate-800 cursor-pointer"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 bg-slate-900 text-white dark:bg-white dark:text-slate-900 rounded-xl font-semibold"
+                  className="px-4 py-1.5 bg-slate-900 text-white dark:bg-white dark:text-slate-900 rounded-xl font-semibold cursor-pointer"
                 >
                   {editingUser ? 'Simpan Perubahan' : 'Daftar Pengguna'}
                 </button>

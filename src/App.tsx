@@ -19,6 +19,7 @@ import {
   DocumentWorkflowStep,
   GoogleStorageConfig,
   canManageUsers,
+  isSuperAdmin,
   SUPER_ADMIN_EMAIL,
   UserGroup,
   DmsFolder,
@@ -744,6 +745,86 @@ export default function App() {
     showToast('Pengguna Dikemaskini', 'Profil pengguna berjaya dikemaskini.', 'info');
   };
 
+  const handleDeleteUser = (userId: string) => {
+    if (!currentUser || !canManageUsers(currentUser)) {
+      showToast('Akses Ditolak', 'Hanya Pentadbir dibenarkan memadam akaun pengguna.', 'error');
+      return;
+    }
+
+    const targetUser = users.find((u) => u.uid === userId);
+    if (!targetUser) return;
+
+    // Guard against deleting Super Admin
+    if (
+      isSuperAdmin(targetUser) ||
+      targetUser.email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase() ||
+      targetUser.serviceNumber === '990001'
+    ) {
+      showToast('Tindakan Disekat', 'Akaun Super Administrator utama sistem tidak boleh dipadam.', 'error');
+      return;
+    }
+
+    // Guard against deleting self
+    if (targetUser.uid === currentUser.uid) {
+      showToast('Tindakan Disekat', 'Anda tidak boleh memadam akaun sesi anda sendiri yang sedang aktif.', 'error');
+      return;
+    }
+
+    setUsers((prev) => prev.filter((u) => u.uid !== userId));
+    logActivity(
+      'PADAM_PENGGUNA',
+      undefined,
+      undefined,
+      `Memadam pengguna #${targetUser.serviceNumber} (${targetUser.displayName}) dari sistem untuk housekeeping.`
+    );
+    showToast(
+      'Pengguna Dipadam',
+      `Akaun #${targetUser.serviceNumber} (${targetUser.displayName}) berjaya dipadam dari sistem.`,
+      'info'
+    );
+  };
+
+  const handleToggleUserStatus = (userId: string, targetStatus: 'active' | 'inactive') => {
+    if (!currentUser || !canManageUsers(currentUser)) {
+      showToast('Akses Ditolak', 'Hanya Pentadbir dibenarkan mengemaskini status pengguna.', 'error');
+      return;
+    }
+
+    const targetUser = users.find((u) => u.uid === userId);
+    if (!targetUser) return;
+
+    if (
+      isSuperAdmin(targetUser) ||
+      targetUser.email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase() ||
+      targetUser.serviceNumber === '990001'
+    ) {
+      showToast('Tindakan Disekat', 'Status akaun Super Administrator utama tidak boleh diubah.', 'error');
+      return;
+    }
+
+    if (targetUser.uid === currentUser.uid && targetStatus === 'inactive') {
+      showToast('Tindakan Disekat', 'Anda tidak boleh menyahaktifkan akaun sendiri semasa sesi aktif.', 'error');
+      return;
+    }
+
+    setUsers((prev) =>
+      prev.map((u) => (u.uid === userId ? { ...u, status: targetStatus } : u))
+    );
+
+    const statusLabel = targetStatus === 'active' ? 'diaktifkan semula' : 'dinyahaktifkan (Inactive)';
+    logActivity(
+      'KEMASKINI_STATUS_PENGGUNA',
+      undefined,
+      undefined,
+      `Mengubah status akaun #${targetUser.serviceNumber} (${targetUser.displayName}) kepada "${targetStatus.toUpperCase()}".`
+    );
+    showToast(
+      'Status Pengguna Dikemaskini',
+      `Akaun #${targetUser.serviceNumber} (${targetUser.displayName}) telah ${statusLabel}.`,
+      'info'
+    );
+  };
+
   // Secure Login using 6-character Service Number AND Password
   const handleLoginWithCredentials = (serviceNumber: string, passwordInput: string): boolean => {
     if (!serviceNumber || !passwordInput) return false;
@@ -753,6 +834,16 @@ export default function App() {
     );
     if (!foundUser) {
       showToast('Gagal Log Masuk', `No. Perkhidmatan "${formattedNo}" tidak dijumpai dalam pangkalan data kakitangan.`, 'error');
+      return false;
+    }
+
+    // Check account status: inactive
+    if (foundUser.status === 'inactive') {
+      showToast(
+        'Akaun Tidak Aktif',
+        `Akaun No. Perkhidmatan ${formattedNo} telah dinyahaktifkan (Inactive) untuk tujuan housekeeping. Sila hubungi Pentadbir Sistem.`,
+        'error'
+      );
       return false;
     }
 
@@ -1555,6 +1646,8 @@ export default function App() {
             currentUser={currentUser}
             onCreateUser={handleCreateUser}
             onUpdateUser={handleUpdateUser}
+            onDeleteUser={handleDeleteUser}
+            onToggleUserStatus={handleToggleUserStatus}
             onLoginWithCredentials={handleLoginWithCredentials}
             onShowToast={showToast}
           />

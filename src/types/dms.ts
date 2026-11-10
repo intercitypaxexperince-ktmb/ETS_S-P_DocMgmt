@@ -38,7 +38,7 @@ export const canManageUsers = (user?: UserProfile | null): boolean => {
   return isSuperAdmin(user) || user.role === 'admin';
 };
 
-export type AccountStatus = 'active' | 'expired' | 'suspended';
+export type AccountStatus = 'active' | 'inactive' | 'expired' | 'suspended';
 
 export interface UserProfile {
   uid: string;
@@ -243,6 +243,8 @@ export type ActionType =
   | 'SETUP_STORAGE'
   | 'CIPTA_PENGGUNA'
   | 'KEMASKINI_PENGGUNA'
+  | 'PADAM_PENGGUNA'
+  | 'KEMASKINI_STATUS_PENGGUNA'
   | 'CIPTA_KATEGORI'
   | 'PADAM_KATEGORI'
   | 'KEMASKINI_PERANAN'

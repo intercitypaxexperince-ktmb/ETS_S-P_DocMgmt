@@ -70,6 +70,14 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       return;
     }
 
+    // Check account status: inactive
+    if (matchedUser.status === 'inactive') {
+      setErrorMessage(
+        `Akaun No. #${matchedUser.serviceNumber} telah dinyahaktifkan (Inactive) untuk tujuan housekeeping. Sila hubungi Pentadbir Sistem.`
+      );
+      return;
+    }
+
     // Check account expiry
     if (matchedUser.expiryDate) {
       const isExpired = new Date(matchedUser.expiryDate).getTime() < new Date().getTime();
