@@ -331,7 +331,7 @@ export const DriveFolderView: React.FC<DriveFolderViewProps> = ({
 
   return (
     <div className="space-y-5">
-      {/* Google Drive Header Toolbar */}
+      {/* Paparan Folder Header Toolbar */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 sm:p-5 shadow-xs">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           {/* Breadcrumb Path Trail */}
@@ -647,7 +647,7 @@ export const DriveFolderView: React.FC<DriveFolderViewProps> = ({
             })}
           </div>
         ) : (
-          /* List View (Google Drive Table) */
+          /* List View (Jadual Fail Folder) */
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-xs">
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 border-b border-slate-200 dark:border-slate-700 font-medium">

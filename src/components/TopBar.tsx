@@ -37,21 +37,27 @@ export const TopBar: React.FC<TopBarProps> = ({
   return (
     <header className="sticky top-0 z-40 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 transition-colors">
       <div className="max-w-7xl mx-auto flex items-center justify-between gap-8 px-6 py-3.5">
-        {/* Zone 1: Single text element wordmark */}
+        {/* Zone 1: ETS Logo & Brand Wordmark */}
         <div className="flex items-center gap-3 shrink-0">
-          <div className="w-9 h-9 rounded-lg overflow-hidden border border-slate-200 dark:border-slate-800 shrink-0">
-            <img
-              src="/src/assets/images/logo_arkadms_seal_1793580726055.jpg"
-              alt="ETS Emblem"
-              referrerPolicy="no-referrer"
-              className="w-full h-full object-cover"
-            />
-          </div>
           <button
             onClick={() => onSelectTab('documents')}
-            className="text-lg font-bold tracking-tight text-slate-900 dark:text-white whitespace-nowrap shrink-0 hover:opacity-90 transition-opacity"
+            className="flex items-center gap-3 hover:opacity-90 transition-opacity text-left cursor-pointer"
           >
-            ETS Document Management
+            <div className="h-9 px-2 py-1 rounded-lg bg-white dark:bg-slate-800/90 border border-slate-200 dark:border-slate-800 shrink-0 flex items-center justify-center shadow-2xs">
+              <img
+                src="/assets/aistudio/image_f706b2dd.png"
+                alt="ETS Logo"
+                className="h-6 w-auto object-contain"
+              />
+            </div>
+            <div className="flex flex-col">
+              <span className="text-base sm:text-lg font-bold tracking-tight text-slate-900 dark:text-white whitespace-nowrap leading-none">
+                ETS Document Management
+              </span>
+              <span className="text-[10px] text-slate-500 font-medium tracking-wider uppercase mt-1">
+                Sistem Pengurusan & Arkib Fail
+              </span>
+            </div>
           </button>
         </div>
 

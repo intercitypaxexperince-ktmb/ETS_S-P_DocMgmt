@@ -113,16 +113,20 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/40">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 rounded-lg">
-              <Lock className="w-5 h-5" />
+          <div className="flex items-center gap-3">
+            <div className="h-10 px-2 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center shrink-0 shadow-2xs">
+              <img
+                src="/assets/aistudio/image_f706b2dd.png"
+                alt="ETS Logo"
+                className="h-7 w-auto object-contain"
+              />
             </div>
             <div>
-              <h3 className="text-base font-bold text-slate-900 dark:text-white">
+              <h3 className="text-base font-bold text-slate-900 dark:text-white leading-tight">
                 Log Masuk Sesi Rasmi
               </h3>
               <p className="text-xs text-slate-500">
-                Sistem Pengurusan Dokumen (ETS Document Management)
+                ETS Document Management
               </p>
             </div>
           </div>

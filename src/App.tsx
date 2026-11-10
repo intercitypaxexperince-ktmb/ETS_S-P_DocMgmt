@@ -80,7 +80,7 @@ import { RefreshCw, Folder, FileText } from 'lucide-react';
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<'documents' | 'categories' | 'users' | 'groups' | 'organization' | 'analytics'>('documents');
-  const [docViewStyle, setDocViewStyle] = useState<'standard' | 'drive'>('standard');
+  const [docViewStyle, setDocViewStyle] = useState<'standard' | 'drive'>('drive');
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
 
   const [departments, setDepartments] = useState<Department[]>(() => {
@@ -1374,7 +1374,7 @@ export default function App() {
                 ? selectedDoc
                   ? `Fail: ${selectedDoc.title.substring(0, 28)}...`
                   : docViewStyle === 'drive'
-                  ? 'Paparan Folder (Google Drive)'
+                  ? 'Paparan Folder'
                   : 'Dokumen & Paper'
                 : currentTab === 'groups'
                 ? 'Pengurusan Kumpulan Pengguna & Matriks Hak Cipta'
@@ -1388,26 +1388,11 @@ export default function App() {
             </span>
           </div>
 
-          {/* User Persona & Role Switcher */}
+          {/* Profil & Sesi Pengguna Aktif */}
           <UserProfileSwitcher
             currentUser={currentUser}
-            availableUsers={users}
-            onSwitchUser={(user) => {
-              setCurrentUser(user);
-              // Reset to documents if the new role cannot access the current active tab
-              if (user.role === 'viewer' && ['categories', 'groups', 'users', 'organization'].includes(currentTab)) {
-                setCurrentTab('documents');
-              } else if (user.role === 'editor' && ['categories', 'groups', 'users'].includes(currentTab)) {
-                setCurrentTab('documents');
-              }
-              logActivity(
-                'KEMASKINI_PERANAN',
-                undefined,
-                undefined,
-                `Tukar sesi aktif kepada ${user.displayName} (#${user.serviceNumber}).`
-              );
-              showToast('Profil Ditukar', `Sesi kini: ${user.displayName} (#${user.serviceNumber})`, 'info');
-            }}
+            onLogout={handleLogout}
+            onOpenLoginModal={() => setIsLoginModalOpen(true)}
             onGoogleSignIn={async () => {
               try {
                 await signInWithGoogle();
@@ -1419,8 +1404,6 @@ export default function App() {
                 showToast('Log Keluar', 'Akaun Google telah dilog keluar.', 'info');
               } catch (e) {}
             }}
-            onLogout={handleLogout}
-            onOpenLoginModal={() => setIsLoginModalOpen(true)}
             isGoogleAuthenticated={isGoogleAuth}
             googleUserEmail={googleEmail}
           />
@@ -1455,7 +1438,7 @@ export default function App() {
               />
             ) : (
               <div className="space-y-5">
-                {/* View Switcher: Standard Table / Cards vs Google Drive Folder View */}
+                {/* View Switcher: Standard Table / Cards vs Paparan Folder */}
                 <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
                   <div className="flex items-center gap-1.5 p-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xs">
                     <button
@@ -1478,7 +1461,7 @@ export default function App() {
                       }`}
                     >
                       <Folder className="w-3.5 h-3.5 text-amber-500" />
-                      <span>Paparan Folder (Google Drive)</span>
+                      <span>Paparan Folder</span>
                     </button>
                   </div>
 
