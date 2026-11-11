@@ -58,6 +58,7 @@ interface DocumentEditorModalProps {
 }
 
 interface UploadedAttachment {
+  id?: string;
   dataUrl: string;
   fileName: string;
   fileType: string;
@@ -135,8 +136,8 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
   // Automated notification trigger
   const [notifyStakeholders, setNotifyStakeholders] = useState(true);
 
-  // File & PDF Attachment State
-  const [attachment, setAttachment] = useState<UploadedAttachment | null>(null);
+  // File & PDF Attachments State (Multi-file upload support)
+  const [attachments, setAttachments] = useState<UploadedAttachment[]>([]);
   const [isProcessingFile, setIsProcessingFile] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -167,20 +168,40 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
       setAllowedUsers(initialDoc.allowedUsers || []);
       setOfflineAvailable(initialDoc.offlineAvailable ?? true);
 
-      if (initialDoc.attachmentUrl) {
+      // Muatkan pelbagai lampiran fail
+      if (initialDoc.attachments && initialDoc.attachments.length > 0) {
+        setAttachments(
+          initialDoc.attachments.map((att) => {
+            const isPdf = att.type === 'application/pdf' || att.name.toLowerCase().endsWith('.pdf');
+            const isImage = att.type.startsWith('image/');
+            return {
+              id: att.id,
+              dataUrl: att.url,
+              fileName: att.name,
+              fileType: att.type,
+              originalSize: att.sizeOriginal || 0,
+              compressedSize: att.sizeCompressed,
+              isImage,
+              isPdf,
+            };
+          })
+        );
+      } else if (initialDoc.attachmentUrl) {
         const isPdf = initialDoc.attachmentType === 'application/pdf' || initialDoc.attachmentName?.toLowerCase().endsWith('.pdf');
         const isImage = initialDoc.attachmentType?.startsWith('image/');
-        setAttachment({
-          dataUrl: initialDoc.attachmentUrl,
-          fileName: initialDoc.attachmentName || (isPdf ? 'Dokumen_Paper.pdf' : 'Lampiran_Fail'),
-          fileType: initialDoc.attachmentType || (isPdf ? 'application/pdf' : 'application/octet-stream'),
-          originalSize: initialDoc.attachmentSizeOriginal || 0,
-          compressedSize: initialDoc.attachmentSizeCompressed,
-          isImage,
-          isPdf,
-        });
+        setAttachments([
+          {
+            dataUrl: initialDoc.attachmentUrl,
+            fileName: initialDoc.attachmentName || (isPdf ? 'Dokumen_Paper.pdf' : 'Lampiran_Fail'),
+            fileType: initialDoc.attachmentType || (isPdf ? 'application/pdf' : 'application/octet-stream'),
+            originalSize: initialDoc.attachmentSizeOriginal || 0,
+            compressedSize: initialDoc.attachmentSizeCompressed,
+            isImage,
+            isPdf,
+          },
+        ]);
       } else {
-        setAttachment(null);
+        setAttachments([]);
       }
     } else {
       setTitle('');
@@ -200,93 +221,95 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
       setAllowedGroups([]);
       setAllowedUsers([]);
       setOfflineAvailable(true);
-      setAttachment(null);
+      setAttachments([]);
     }
   }, [initialDoc, isOpen, categories, initialFolderId]);
 
   if (!isOpen) return null;
 
-  const processFile = async (file: File) => {
+  const processFiles = async (files: FileList | File[]) => {
+    if (!files || files.length === 0) return;
     setIsProcessingFile(true);
     setUploadError(null);
+
+    const newUploadedList: UploadedAttachment[] = [];
+
     try {
-      if (file.type.startsWith('image/')) {
-        const result = await compressAndResizeImage(file, 1280, 0.82);
-        let finalUrl = result.dataUrl;
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        if (file.type.startsWith('image/')) {
+          const result = await compressAndResizeImage(file, 1280, 0.82);
+          let finalUrl = result.dataUrl;
 
-        if (storageConfig?.isConfigured && isOnline) {
-          try {
-            const uploaded = await uploadFileToStorage(result.dataUrl, result.fileName, 'image/jpeg');
-            finalUrl = uploaded.url;
-            onShowToast(
-              'Storan Google Cloud',
-              `Imej dimampatkan dan dimuat naik ke baldi Google Storage (${result.savedPercentage}% penjimatan saiz).`,
-              'success'
-            );
-          } catch (e) {
-            console.warn('Google Storage upload fallback to local cache:', e);
+          if (storageConfig?.isConfigured && isOnline) {
+            try {
+              const uploaded = await uploadFileToStorage(result.dataUrl, result.fileName, 'image/jpeg');
+              finalUrl = uploaded.url;
+            } catch (e) {
+              console.warn('Google Storage upload fallback to local cache:', e);
+            }
           }
-        } else {
-          onShowToast('Imej Dimampatkan', `Penjimatan saiz ${result.savedPercentage}% berjaya dilakukan.`, 'success');
-        }
 
-        setAttachment({
-          dataUrl: finalUrl,
-          fileName: result.fileName,
-          fileType: result.fileType,
-          originalSize: result.originalSize,
-          compressedSize: result.compressedSize,
-          isImage: true,
-          isPdf: false,
-        });
-      } else {
-        // PDF or General Document (Word, Excel, Text, etc.)
-        const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
-
-        if (storageConfig?.isConfigured && isOnline) {
-          try {
-            const uploaded = await uploadFileToStorage(file, file.name, file.type || 'application/pdf');
-            setAttachment({
-              dataUrl: uploaded.url,
-              fileName: file.name,
-              fileType: file.type || (isPdf ? 'application/pdf' : 'application/octet-stream'),
-              originalSize: file.size,
-              isImage: false,
-              isPdf,
-            });
-            onShowToast(
-              'Google Storage Awan',
-              `"${file.name}" (${formatBytes(file.size)}) telah dimuat naik ke Google Cloud Storage.`,
-              'success'
-            );
-            return;
-          } catch (e) {
-            console.warn('Direct upload error, falling back to local file reader:', e);
-          }
-        }
-
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          const dataUrl = e.target?.result as string;
-          setAttachment({
-            dataUrl,
-            fileName: file.name,
-            fileType: file.type || (isPdf ? 'application/pdf' : 'application/octet-stream'),
-            originalSize: file.size,
-            isImage: false,
-            isPdf,
+          newUploadedList.push({
+            id: `att_${Date.now()}_${i}`,
+            dataUrl: finalUrl,
+            fileName: result.fileName,
+            fileType: result.fileType,
+            originalSize: result.originalSize,
+            compressedSize: result.compressedSize,
+            isImage: true,
+            isPdf: false,
           });
-          onShowToast(
-            isPdf ? 'Fail PDF Dimuat Naik' : 'Fail Dokumen Dimuat Naik',
-            `"${file.name}" (${formatBytes(file.size)}) sedia dilampirkan.`,
-            'success'
-          );
-        };
-        reader.onerror = () => {
-          setUploadError('Gagal membaca fail yang dimuat naik.');
-        };
-        reader.readAsDataURL(file);
+        } else {
+          // PDF or General Document (Word, Excel, Text, etc.)
+          const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+
+          if (storageConfig?.isConfigured && isOnline) {
+            try {
+              const uploaded = await uploadFileToStorage(file, file.name, file.type || 'application/pdf');
+              newUploadedList.push({
+                id: `att_${Date.now()}_${i}`,
+                dataUrl: uploaded.url,
+                fileName: file.name,
+                fileType: file.type || (isPdf ? 'application/pdf' : 'application/octet-stream'),
+                originalSize: file.size,
+                isImage: false,
+                isPdf,
+              });
+              continue;
+            } catch (e) {
+              console.warn('Direct upload error, falling back to local file reader:', e);
+            }
+          }
+
+          // Local base64 read
+          await new Promise<void>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+              const dataUrl = e.target?.result as string;
+              newUploadedList.push({
+                id: `att_${Date.now()}_${i}`,
+                dataUrl,
+                fileName: file.name,
+                fileType: file.type || (isPdf ? 'application/pdf' : 'application/octet-stream'),
+                originalSize: file.size,
+                isImage: false,
+                isPdf,
+              });
+              resolve();
+            };
+            reader.onerror = () => reject(new Error(`Gagal membaca fail: ${file.name}`));
+            reader.readAsDataURL(file);
+          });
+        }
       }
+
+      setAttachments((prev) => [...prev, ...newUploadedList]);
+      onShowToast(
+        'Fail Berjaya Dimuat Naik',
+        `${newUploadedList.length} fail telah ditambah ke senarai lampiran dokumen.`,
+        'success'
+      );
     } catch (err: any) {
       setUploadError(err.message || 'Gagal memproses fail yang dimuat naik.');
     } finally {
@@ -334,7 +357,7 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
         summary: summary.trim() || title.trim(),
         content: isEncrypted
           ? (textToSave ? '[KANDUNGAN TERENKRIPSI DENGAN AES-256-GCM]' : '')
-          : (textToSave || (attachment ? `[Lampiran Fail Rasmi: ${attachment.fileName}]` : '')),
+          : (textToSave || (attachments.length > 0 ? `[Lampiran Fail Rasmi: ${attachments.map((a) => a.fileName).join(', ')}]` : '')),
         isConfidential,
         clearanceRequired: isConfidential ? (clearanceRequired === 'BIASA' ? 'SULIT' : clearanceRequired) : 'BIASA',
         folderId: folderId || null,
@@ -371,13 +394,25 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
         ];
       }
 
-      if (attachment) {
-        docPayload.attachmentUrl = attachment.dataUrl;
-        docPayload.attachmentName = attachment.fileName;
-        docPayload.attachmentType = attachment.fileType;
-        docPayload.attachmentSizeOriginal = attachment.originalSize;
-        docPayload.attachmentSizeCompressed = attachment.compressedSize;
-      } else if (isEditing && !attachment) {
+      // Simpan semua senarai lampiran fail
+      docPayload.attachments = attachments.map((att, idx) => ({
+        id: att.id || `att_${Date.now()}_${idx}`,
+        name: att.fileName,
+        url: att.dataUrl,
+        type: att.fileType,
+        sizeOriginal: att.originalSize,
+        sizeCompressed: att.compressedSize,
+        uploadedAt: new Date().toISOString(),
+      }));
+
+      // Keserasian ke belakang bagi fail tunggal
+      if (attachments.length > 0) {
+        docPayload.attachmentUrl = attachments[0].dataUrl;
+        docPayload.attachmentName = attachments[0].fileName;
+        docPayload.attachmentType = attachments[0].fileType;
+        docPayload.attachmentSizeOriginal = attachments[0].originalSize;
+        docPayload.attachmentSizeCompressed = attachments[0].compressedSize;
+      } else {
         docPayload.attachmentUrl = undefined;
         docPayload.attachmentName = undefined;
         docPayload.attachmentType = undefined;
@@ -388,7 +423,7 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
       await onSave(docPayload, notifyStakeholders);
       onShowToast(
         isEditing ? 'Dokumen Dikemaskini' : 'Dokumen Berjaya Didaftarkan',
-        `Fail "${title}" telah disimpan.`,
+        `Fail "${title}" (${attachments.length} lampiran) telah disimpan.`,
         'success'
       );
       onClose();
@@ -584,7 +619,7 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
               <span className="text-[11px] text-slate-400">Boleh dikosongkan jika memuat naik fail PDF / lampiran</span>
             </div>
             <textarea
-              rows={5}
+              rows={4}
               value={content}
               onChange={(e) => setContent(e.target.value)}
               placeholder="Tulis ringkasan perakuan, minit keputusan atau kandungan dokumen (atau kosongkan sekiranya memuat naik fail dokumen PDF penuh)..."
@@ -592,7 +627,7 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
             />
           </div>
 
-          {/* Drag & Drop PDF & File Uploader */}
+          {/* Drag & Drop Multi-file Uploader */}
           <div
             onDragOver={(e) => {
               e.preventDefault();
@@ -602,17 +637,17 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
             onDrop={(e) => {
               e.preventDefault();
               setIsDragging(false);
-              const file = e.dataTransfer.files?.[0];
-              if (file) processFile(file);
+              const droppedFiles = e.dataTransfer.files;
+              if (droppedFiles && droppedFiles.length > 0) processFiles(droppedFiles);
             }}
-            className={`p-4 rounded-xl border-2 border-dashed space-y-2.5 transition-colors ${
+            className={`p-4 rounded-xl border-2 border-dashed space-y-3 transition-colors ${
               isDragging ? 'border-blue-500 bg-blue-50/50' : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40'
             }`}
           >
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
               <span className="font-semibold text-slate-900 dark:text-white flex items-center gap-2">
                 <Upload className="w-4 h-4 text-blue-600" />
-                <span>Muat Naik Fail / Dokumen PDF / Kertas Kerja</span>
+                <span>Muat Naik Pelbagai Fail / Dokumen PDF / Kertas Kerja</span>
               </span>
               <div className="flex items-center gap-2">
                 {storageConfig?.isConfigured ? (
@@ -630,82 +665,102 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
                     <span>Setup Google Storage (Kali Pertama) →</span>
                   </button>
                 ) : null}
-                <span className="text-[10px] text-slate-400 font-mono">PDF, DOCX, XLSX, TXT, Imej</span>
+                <span className="text-[10px] text-slate-400 font-mono">Boleh Lebih Dari 1 Fail</span>
               </div>
             </div>
 
             <p className="text-[11px] text-slate-500">
-              Sokongan muat naik fail dokumen rasmi (PDF, Word, Excel) atau imej. Imej akan dimampatkan secara automatik.
+              Sokongan memuat naik <strong>lebih dari 1 fail serentak</strong> (PDF, Word, Excel, Imej). Imej dimampatkan secara automatik untuk penjimatan storan awan.
             </p>
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
               <label className="cursor-pointer flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-200 font-medium hover:bg-slate-50 transition-colors shadow-xs">
                 <Upload className="w-3.5 h-3.5 text-blue-600" />
-                <span>Pilih Fail dari Peranti</span>
+                <span>Pilih Fail dari Peranti (Boleh Pelbagai Fail)</span>
                 <input
                   type="file"
+                  multiple
                   accept=".pdf, .doc, .docx, .xls, .xlsx, .csv, .txt, image/*"
                   onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) processFile(file);
+                    if (e.target.files) processFiles(e.target.files);
                   }}
                   className="hidden"
                 />
               </label>
-              <span className="text-[11px] text-slate-400">atau tarik dan lepas fail dokumen / PDF ke sini.</span>
-              {isProcessingFile && <span className="text-blue-600 font-mono text-[11px] animate-pulse">Memproses fail...</span>}
+              <span className="text-[11px] text-slate-400">atau tarik dan lepas berbilang fail ke sini.</span>
+              {isProcessingFile && <span className="text-blue-600 font-mono text-[11px] animate-pulse">Memproses & memampatkan fail...</span>}
             </div>
 
             {uploadError && <p className="text-xs text-rose-500">{uploadError}</p>}
 
-            {/* Uploaded File Preview Badge */}
-            {attachment && (
-              <div className="bg-white dark:bg-slate-900 p-3 rounded-lg border border-slate-200 dark:border-slate-700 flex items-center justify-between gap-3 text-xs shadow-xs">
-                <div className="flex items-center gap-3 min-w-0">
-                  {attachment.isPdf ? (
-                    <div className="w-9 h-9 rounded-lg bg-rose-50 dark:bg-rose-950/60 text-rose-600 flex items-center justify-center shrink-0 border border-rose-200 dark:border-rose-900">
-                      <FileText className="w-5 h-5" />
-                    </div>
-                  ) : attachment.isImage ? (
-                    <img
-                      src={attachment.dataUrl}
-                      alt="Pratonton"
-                      className="w-9 h-9 rounded object-cover border border-slate-200 shrink-0"
-                    />
-                  ) : (
-                    <div className="w-9 h-9 rounded-lg bg-blue-50 dark:bg-blue-950/60 text-blue-600 flex items-center justify-center shrink-0 border border-blue-200 dark:border-blue-900">
-                      <FileCheck className="w-5 h-5" />
-                    </div>
-                  )}
-
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <p className="font-semibold text-slate-900 dark:text-white truncate">{attachment.fileName}</p>
-                      {attachment.isPdf && (
-                        <span className="text-[9px] font-bold px-1.5 py-0.2 bg-rose-100 dark:bg-rose-900/60 text-rose-700 dark:text-rose-300 rounded shrink-0">
-                          PDF
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-[10px] text-slate-500 font-mono">
-                      {formatBytes(attachment.originalSize)}
-                      {attachment.compressedSize && (
-                        <span className="text-emerald-600 dark:text-emerald-400 font-semibold ml-1.5">
-                          → {formatBytes(attachment.compressedSize)} (Dimampatkan)
-                        </span>
-                      )}
-                    </p>
-                  </div>
+            {/* List of Multiple Uploaded Attachments */}
+            {attachments.length > 0 && (
+              <div className="space-y-2 pt-1">
+                <div className="flex items-center justify-between text-[11px] font-semibold text-slate-600 dark:text-slate-400">
+                  <span>Lampiran Sedia Disimpan ({attachments.length} Fail)</span>
+                  <button
+                    type="button"
+                    onClick={() => setAttachments([])}
+                    className="text-rose-500 hover:text-rose-700 font-normal hover:underline"
+                  >
+                    Kosongkan Semua
+                  </button>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => setAttachment(null)}
-                  className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                  title="Buang fail lampiran"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                  {attachments.map((att, idx) => (
+                    <div
+                      key={att.id || idx}
+                      className="bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 flex items-center justify-between gap-3 text-xs shadow-2xs"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        {att.isPdf ? (
+                          <div className="w-8 h-8 rounded-lg bg-rose-50 dark:bg-rose-950/60 text-rose-600 flex items-center justify-center shrink-0 border border-rose-200 dark:border-rose-900">
+                            <FileText className="w-4 h-4" />
+                          </div>
+                        ) : att.isImage ? (
+                          <img
+                            src={att.dataUrl}
+                            alt="Pratonton"
+                            className="w-8 h-8 rounded object-cover border border-slate-200 shrink-0"
+                          />
+                        ) : (
+                          <div className="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-950/60 text-blue-600 flex items-center justify-center shrink-0 border border-blue-200 dark:border-blue-900">
+                            <FileCheck className="w-4 h-4" />
+                          </div>
+                        )}
+
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <p className="font-semibold text-slate-900 dark:text-white truncate">{att.fileName}</p>
+                            {att.isPdf && (
+                              <span className="text-[9px] font-bold px-1.5 py-0.2 bg-rose-100 dark:bg-rose-900/60 text-rose-700 dark:text-rose-300 rounded shrink-0">
+                                PDF
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[10px] text-slate-500 font-mono">
+                            {formatBytes(att.originalSize)}
+                            {att.compressedSize && (
+                              <span className="text-emerald-600 dark:text-emerald-400 font-semibold ml-1.5">
+                                → {formatBytes(att.compressedSize)} (Dimampatkan)
+                              </span>
+                            )}
+                          </p>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setAttachments((prev) => prev.filter((_, i) => i !== idx))}
+                        className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shrink-0"
+                        title="Buang fail ini"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>

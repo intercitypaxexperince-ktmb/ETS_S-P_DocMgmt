@@ -29,6 +29,8 @@ import {
   List,
   Copy,
   ArrowUpDown,
+  ArrowDown,
+  ArrowUp,
   X,
   ExternalLink,
   ImageIcon,
@@ -93,6 +95,7 @@ export const DocumentList: React.FC<DocumentListProps> = ({
   const [selectedTag, setSelectedTag] = useState<string>('');
   const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
   const [sortBy, setSortBy] = useState<'kemaskini' | 'tarikh_dokumen' | 'tajuk' | 'versi'>('kemaskini');
+  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
 
   // Quick Slide-over Preview State
   const [previewDoc, setPreviewDoc] = useState<DmsDocument | null>(null);
@@ -199,19 +202,17 @@ export const DocumentList: React.FC<DocumentListProps> = ({
     });
 
     result.sort((a, b) => {
+      let comp = 0;
       if (sortBy === 'kemaskini') {
-        return new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime();
+        comp = new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime();
+      } else if (sortBy === 'tarikh_dokumen') {
+        comp = new Date(b.documentDate || b.createdAt).getTime() - new Date(a.documentDate || a.createdAt).getTime();
+      } else if (sortBy === 'tajuk') {
+        comp = a.title.localeCompare(b.title);
+      } else if (sortBy === 'versi') {
+        comp = parseFloat(b.currentVersion) - parseFloat(a.currentVersion);
       }
-      if (sortBy === 'tarikh_dokumen') {
-        return new Date(b.documentDate || b.createdAt).getTime() - new Date(a.documentDate || a.createdAt).getTime();
-      }
-      if (sortBy === 'tajuk') {
-        return a.title.localeCompare(b.title);
-      }
-      if (sortBy === 'versi') {
-        return parseFloat(b.currentVersion) - parseFloat(a.currentVersion);
-      }
-      return 0;
+      return sortOrder === 'desc' ? comp : -comp;
     });
 
     return result;
@@ -223,10 +224,9 @@ export const DocumentList: React.FC<DocumentListProps> = ({
     selectedPaperStatus,
     selectedTag,
     securityFilter,
+    currentUser,
     sortBy,
-    currentUser?.clearanceLevel,
-    currentUser?.role,
-    currentUser?.uid,
+    sortOrder,
   ]);
 
   const handleToggleSelectDoc = (id: string, e: React.MouseEvent) => {
@@ -350,18 +350,26 @@ export const DocumentList: React.FC<DocumentListProps> = ({
             </button>
           </div>
 
-          <div className="flex items-center gap-1.5 px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs">
+          <div className="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs">
             <ArrowUpDown className="w-3.5 h-3.5 text-slate-400" />
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as any)}
               className="bg-transparent text-slate-700 dark:text-slate-300 font-medium focus:outline-none cursor-pointer"
             >
-              <option value="kemaskini">Terkini Dikemaskini</option>
+              <option value="kemaskini">Tarikh Kemaskini</option>
               <option value="tarikh_dokumen">Tarikh Dokumen</option>
               <option value="tajuk">Tajuk (A - Z)</option>
               <option value="versi">Versi Tertinggi</option>
             </select>
+            <button
+              type="button"
+              onClick={() => setSortOrder((p) => (p === 'desc' ? 'asc' : 'desc'))}
+              className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded text-slate-600 dark:text-slate-300 transition-colors"
+              title={sortOrder === 'desc' ? 'Susunan: Terbaharu ke Terawal' : 'Susunan: Terawal ke Terbaharu'}
+            >
+              {sortOrder === 'desc' ? <ArrowDown className="w-3.5 h-3.5 text-blue-600" /> : <ArrowUp className="w-3.5 h-3.5 text-blue-600" />}
+            </button>
           </div>
 
           <div className="flex items-center gap-1.5">
@@ -519,10 +527,40 @@ export const DocumentList: React.FC<DocumentListProps> = ({
                   </th>
                   <th className="px-4 py-3">Tajuk Dokumen / Paper</th>
                   <th className="px-3 py-3">Kategori</th>
-                  <th className="px-3 py-3">Tarikh Dokumen</th>
+                  <th
+                    className="px-3 py-3 cursor-pointer hover:text-slate-900 dark:hover:text-white select-none"
+                    onClick={() => {
+                      if (sortBy === 'tarikh_dokumen') setSortOrder((p) => (p === 'desc' ? 'asc' : 'desc'));
+                      else { setSortBy('tarikh_dokumen'); setSortOrder('desc'); }
+                    }}
+                  >
+                    <div className="flex items-center gap-1">
+                      <span>Tarikh Dokumen</span>
+                      {sortBy === 'tarikh_dokumen' ? (
+                        sortOrder === 'desc' ? <ArrowDown className="w-3 h-3 text-blue-600" /> : <ArrowUp className="w-3 h-3 text-blue-600" />
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                      )}
+                    </div>
+                  </th>
                   <th className="px-3 py-3">Pencipta</th>
                   <th className="px-3 py-3">Status Aliran</th>
-                  <th className="px-3 py-3">Dicipta / Terkini</th>
+                  <th
+                    className="px-3 py-3 cursor-pointer hover:text-slate-900 dark:hover:text-white select-none"
+                    onClick={() => {
+                      if (sortBy === 'kemaskini') setSortOrder((p) => (p === 'desc' ? 'asc' : 'desc'));
+                      else { setSortBy('kemaskini'); setSortOrder('desc'); }
+                    }}
+                  >
+                    <div className="flex items-center gap-1">
+                      <span>Dicipta / Terkini</span>
+                      {sortBy === 'kemaskini' ? (
+                        sortOrder === 'desc' ? <ArrowDown className="w-3 h-3 text-blue-600" /> : <ArrowUp className="w-3 h-3 text-blue-600" />
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                      )}
+                    </div>
+                  </th>
                   <th className="px-4 py-3 text-right">Tindakan</th>
                 </tr>
               </thead>
@@ -565,7 +603,11 @@ export const DocumentList: React.FC<DocumentListProps> = ({
                                 {doc.clearanceRequired === 'RAHSIA_BESAR' ? 'P&C' : doc.clearanceRequired}
                               </span>
                             )}
-                            {doc.attachmentUrl && (
+                            {doc.attachments && doc.attachments.length > 1 ? (
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 bg-blue-100 text-blue-700 dark:bg-blue-950/80 dark:text-blue-300 border border-blue-300">
+                                📎 {doc.attachments.length} Fail
+                              </span>
+                            ) : doc.attachmentUrl ? (
                               <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 flex items-center gap-1 ${
                                 (doc.attachmentType?.includes('pdf') || doc.attachmentName?.toLowerCase().endsWith('.pdf'))
                                   ? 'bg-red-100 text-red-700 dark:bg-red-950/80 dark:text-red-300 border border-red-300'
@@ -575,7 +617,7 @@ export const DocumentList: React.FC<DocumentListProps> = ({
                               }`}>
                                 {(doc.attachmentType?.includes('pdf') || doc.attachmentName?.toLowerCase().endsWith('.pdf')) ? 'PDF' : doc.attachmentType?.startsWith('image/') ? 'Imej' : 'Fail'}
                               </span>
-                            )}
+                            ) : null}
                           </div>
                           <p className="text-[11px] text-slate-500 line-clamp-1 mt-0.5">{doc.summary}</p>
                         </td>

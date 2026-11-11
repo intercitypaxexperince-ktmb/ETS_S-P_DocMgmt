@@ -294,8 +294,8 @@ export const INITIAL_GROUPS: UserGroup[] = [
   },
   {
     id: 'grp_staff_general',
-    name: 'Kumpulan Staf & Warga Am',
-    code: 'WARGA-AM',
+    name: 'Fail General / Akses Am',
+    code: 'FAIL-GENERAL',
     description: 'Kumpulan capaian rujukan bagi pekeliling rasmi, SOP umum dan warta organisasi (Lihat Sahaja).',
     permission: 'view_only',
     memberIds: ['user_viewer_03', 'user_editor_02'],

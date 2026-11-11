@@ -80,10 +80,10 @@ import {
   deleteDoc,
 } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
-import { RefreshCw, Folder, FileText } from 'lucide-react';
+import { RefreshCw, Folder, FileText, ShieldAlert, Lock } from 'lucide-react';
 
 export default function App() {
-  const [currentTab, setCurrentTab] = useState<'documents' | 'categories' | 'users' | 'groups' | 'organization' | 'analytics'>('documents');
+  const [currentTab, setCurrentTab] = useState<'documents' | 'categories' | 'users' | 'groups' | 'organization' | 'analytics' | 'audit'>('documents');
   const [docViewStyle, setDocViewStyle] = useState<'standard' | 'drive'>('drive');
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
 
@@ -109,7 +109,14 @@ export default function App() {
     if (saved) {
       try {
         const list = JSON.parse(saved);
-        if (Array.isArray(list) && list.length > 0) return list;
+        if (Array.isArray(list) && list.length > 0) {
+          return list.map((g: UserGroup) => {
+            if (g.name === 'Kumpulan Staf & Warga Am' || g.id === 'grp_staff_general') {
+              return { ...g, name: 'Fail General / Akses Am', code: 'FAIL-GENERAL' };
+            }
+            return g;
+          });
+        }
       } catch (e) {}
     }
     return INITIAL_GROUPS;
@@ -1709,23 +1716,47 @@ export default function App() {
         )}
 
         {currentTab === 'analytics' && (
-          <div className="space-y-10">
-            <AnalyticsDashboard
-              documents={documents}
-              logs={activityLogs}
-              departments={departments}
-              users={users}
-              onExportPDF={() => {
-                exportDocumentsReportPDF(documents, currentUser?.displayName || 'Pengguna Awam', 'Analitik Produktiviti');
-                showToast('Laporan Analitik PDF Dijana', 'Ringkasan eksekutif telah dimuat turun.', 'success');
-              }}
-            />
+          <AnalyticsDashboard
+            documents={documents}
+            logs={activityLogs}
+            departments={departments}
+            users={users}
+            currentUser={currentUser}
+            onExportPDF={() => {
+              exportDocumentsReportPDF(documents, currentUser?.displayName || 'Pengguna Awam', 'Analitik Produktiviti');
+              showToast('Laporan Analitik PDF Dijana', 'Ringkasan eksekutif telah dimuat turun.', 'success');
+            }}
+            onShowToast={showToast}
+          />
+        )}
 
-            <div className="border-t border-slate-200 dark:border-slate-800 pt-8">
+        {currentTab === 'audit' && (
+          <div className="space-y-6">
+            {!isSuperAdmin(currentUser) ? (
+              <div className="bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 rounded-2xl p-10 text-center max-w-xl mx-auto my-12 space-y-4 shadow-sm">
+                <div className="w-12 h-12 bg-rose-100 dark:bg-rose-900/60 rounded-full flex items-center justify-center mx-auto text-rose-600 dark:text-rose-400">
+                  <ShieldAlert className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-rose-900 dark:text-rose-200">
+                    AKSES TERHAD: MODUL LOG AUDIT KESELAMATAN
+                  </h3>
+                  <p className="text-xs text-rose-700 dark:text-rose-400 mt-2 max-w-md mx-auto leading-relaxed">
+                    Modul Log Audit Aktiviti & Pengawasan Keselamatan (Masa Nyata) hanya dibenarkan kepada <strong>Super Admin</strong> sebagai langkah perlindungan keselamatan dan pematuhan integriti aplikasi.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setCurrentTab('documents')}
+                  className="px-4 py-2 bg-rose-600 text-white text-xs font-semibold rounded-lg hover:bg-rose-700 transition-colors"
+                >
+                  Kembali ke Dokumen Utama
+                </button>
+              </div>
+            ) : (
               <AuditLogView
                 logs={activityLogs}
                 onExportPDF={() => {
-                  exportActivityLogsReportPDF(activityLogs, currentUser?.displayName || 'Pengguna Awam');
+                  exportActivityLogsReportPDF(activityLogs, currentUser?.displayName || 'Super Admin');
                   showToast('Log Audit PDF Selesai', 'Laporan audit keselamatan dimuat turun.', 'success');
                 }}
                 onExportCSV={() => {
@@ -1733,7 +1764,7 @@ export default function App() {
                   showToast('Log Audit CSV Selesai', 'Fail CSV log audit dimuat turun.', 'success');
                 }}
               />
-            </div>
+            )}
           </div>
         )}
       </main>

@@ -50,6 +50,9 @@ import {
   HardDriveDownload,
   CheckCircle,
   AlertTriangle,
+  ArrowUpDown,
+  ArrowDown,
+  ArrowUp,
 } from 'lucide-react';
 
 interface DriveFolderViewProps {
@@ -100,6 +103,8 @@ export const DriveFolderView: React.FC<DriveFolderViewProps> = ({
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [sortBy, setSortBy] = useState<'updatedAt' | 'documentDate' | 'title'>('updatedAt');
+  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
 
   // Modals
   const [isFolderModalOpen, setIsFolderModalOpen] = useState(false);
@@ -179,6 +184,25 @@ export const DriveFolderView: React.FC<DriveFolderViewProps> = ({
       return true;
     });
   }, [documents, currentFolderId, currentUser, groups, searchQuery]);
+
+  // Isih dokumen mengikut pilihan tarikh kemaskini, tarikh dokumen atau tajuk
+  const sortedDocuments = useMemo(() => {
+    return [...currentDocuments].sort((a, b) => {
+      let comparison = 0;
+      if (sortBy === 'updatedAt') {
+        const timeA = new Date(a.updatedAt || a.createdAt || 0).getTime();
+        const timeB = new Date(b.updatedAt || b.createdAt || 0).getTime();
+        comparison = timeA - timeB;
+      } else if (sortBy === 'documentDate') {
+        const timeA = new Date(a.documentDate || a.createdAt || 0).getTime();
+        const timeB = new Date(b.documentDate || b.createdAt || 0).getTime();
+        comparison = timeA - timeB;
+      } else if (sortBy === 'title') {
+        comparison = a.title.localeCompare(b.title);
+      }
+      return sortOrder === 'desc' ? -comparison : comparison;
+    });
+  }, [currentDocuments, sortBy, sortOrder]);
 
   const handleOpenCreateFolder = () => {
     if (!currentUser) {
@@ -428,8 +452,8 @@ export const DriveFolderView: React.FC<DriveFolderViewProps> = ({
           </div>
         </div>
 
-        {/* Search within Current Folder */}
-        <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between gap-3">
+        {/* Search & Sorting Controls within Current Folder */}
+        <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="relative w-full sm:w-80">
             <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
             <input
@@ -441,10 +465,45 @@ export const DriveFolderView: React.FC<DriveFolderViewProps> = ({
             />
           </div>
 
-          <div className="text-xs text-slate-500 flex items-center gap-3">
+          <div className="flex items-center gap-2 flex-wrap text-xs text-slate-500">
+            {/* Sort Controls */}
+            <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 px-2.5 py-1 rounded-lg">
+              <ArrowUpDown className="w-3.5 h-3.5 text-slate-400" />
+              <span className="text-[11px] text-slate-400">Susun:</span>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as any)}
+                className="bg-transparent text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer"
+              >
+                <option value="updatedAt">Tarikh Kemaskini</option>
+                <option value="documentDate">Tarikh Dokumen</option>
+                <option value="title">Tajuk Fail (A-Z)</option>
+              </select>
+
+              <button
+                type="button"
+                onClick={() => setSortOrder((prev) => (prev === 'desc' ? 'asc' : 'desc'))}
+                className="ml-1 p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded text-slate-600 dark:text-slate-300 transition-colors flex items-center gap-0.5"
+                title={sortOrder === 'desc' ? 'Susunan: Terbaharu ke Terawal (Klik untuk tukar)' : 'Susunan: Terawal ke Terbaharu (Klik untuk tukar)'}
+              >
+                {sortOrder === 'desc' ? (
+                  <span className="flex items-center gap-0.5 text-[10px] font-bold text-blue-600">
+                    <ArrowDown className="w-3 h-3" />
+                    <span>Terbaharu</span>
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-0.5 text-[10px] font-bold text-blue-600">
+                    <ArrowUp className="w-3 h-3" />
+                    <span>Terawal</span>
+                  </span>
+                )}
+              </button>
+            </div>
+
+            <span className="hidden sm:inline">·</span>
             <span>{childFolders.length} Folder</span>
             <span>·</span>
-            <span>{currentDocuments.length} Dokumen / Paper</span>
+            <span>{sortedDocuments.length} Dokumen</span>
           </div>
         </div>
       </div>
@@ -567,7 +626,7 @@ export const DriveFolderView: React.FC<DriveFolderViewProps> = ({
         ) : viewMode === 'grid' ? (
           /* Grid View */
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {currentDocuments.map((doc) => {
+            {sortedDocuments.map((doc) => {
               const accessInfo = getDocumentEffectiveAccess(doc, currentUser, groups);
 
               return (
@@ -585,6 +644,11 @@ export const DriveFolderView: React.FC<DriveFolderViewProps> = ({
                       </div>
 
                       <div className="flex items-center gap-1.5">
+                        {doc.attachments && doc.attachments.length > 1 && (
+                          <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-900" title={`${doc.attachments.length} lampiran fail`}>
+                            📎 {doc.attachments.length}
+                          </span>
+                        )}
                         <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
                           v{doc.currentVersion}
                         </span>
@@ -673,22 +737,64 @@ export const DriveFolderView: React.FC<DriveFolderViewProps> = ({
             })}
           </div>
         ) : (
-          /* List View (Jadual Fail Folder) */
+          /* List View (Jadual Fail Folder dengan Klik Header Susun) */
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-xs">
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 border-b border-slate-200 dark:border-slate-700 font-medium">
                 <tr>
-                  <th className="px-4 py-3">Nama Dokumen</th>
+                  <th
+                    className="px-4 py-3 cursor-pointer hover:text-slate-900 dark:hover:text-white select-none"
+                    onClick={() => {
+                      if (sortBy === 'title') setSortOrder((p) => (p === 'desc' ? 'asc' : 'desc'));
+                      else { setSortBy('title'); setSortOrder('asc'); }
+                    }}
+                  >
+                    <div className="flex items-center gap-1">
+                      <span>Nama Dokumen</span>
+                      {sortBy === 'title' && (sortOrder === 'desc' ? <ArrowDown className="w-3 h-3 text-blue-600" /> : <ArrowUp className="w-3 h-3 text-blue-600" />)}
+                    </div>
+                  </th>
                   <th className="px-4 py-3">Kategori</th>
                   <th className="px-4 py-3">Status Aliran</th>
                   <th className="px-4 py-3">Klasifikasi</th>
                   <th className="px-4 py-3">Pencipta</th>
-                  <th className="px-4 py-3">Tarikh Dokumen</th>
+                  <th
+                    className="px-4 py-3 cursor-pointer hover:text-slate-900 dark:hover:text-white select-none"
+                    onClick={() => {
+                      if (sortBy === 'documentDate') setSortOrder((p) => (p === 'desc' ? 'asc' : 'desc'));
+                      else { setSortBy('documentDate'); setSortOrder('desc'); }
+                    }}
+                  >
+                    <div className="flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-300">
+                      <span>Tarikh Dokumen</span>
+                      {sortBy === 'documentDate' ? (
+                        sortOrder === 'desc' ? <ArrowDown className="w-3 h-3 text-blue-600" /> : <ArrowUp className="w-3 h-3 text-blue-600" />
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                      )}
+                    </div>
+                  </th>
+                  <th
+                    className="px-4 py-3 cursor-pointer hover:text-slate-900 dark:hover:text-white select-none"
+                    onClick={() => {
+                      if (sortBy === 'updatedAt') setSortOrder((p) => (p === 'desc' ? 'asc' : 'desc'));
+                      else { setSortBy('updatedAt'); setSortOrder('desc'); }
+                    }}
+                  >
+                    <div className="flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-300">
+                      <span>Kemaskini</span>
+                      {sortBy === 'updatedAt' ? (
+                        sortOrder === 'desc' ? <ArrowDown className="w-3 h-3 text-blue-600" /> : <ArrowUp className="w-3 h-3 text-blue-600" />
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                      )}
+                    </div>
+                  </th>
                   <th className="px-4 py-3 text-right">Tindakan</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {currentDocuments.map((doc) => (
+                {sortedDocuments.map((doc) => (
                   <tr
                     key={doc.id}
                     className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors"
@@ -702,6 +808,11 @@ export const DriveFolderView: React.FC<DriveFolderViewProps> = ({
                         <span className="font-medium text-slate-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
                           {doc.title}
                         </span>
+                        {doc.attachments && doc.attachments.length > 1 && (
+                          <span className="font-mono text-[9px] px-1 py-0.2 rounded bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-900">
+                            📎 {doc.attachments.length}
+                          </span>
+                        )}
                         {doc.offlineAvailable && (
                           <span title="Tersedia Luar Talian">
                             <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
@@ -733,8 +844,11 @@ export const DriveFolderView: React.FC<DriveFolderViewProps> = ({
                     <td className="px-4 py-3 text-slate-600 dark:text-slate-400">
                       {doc.authorName}
                     </td>
-                    <td className="px-4 py-3 text-slate-500 font-mono">
+                    <td className="px-4 py-3 text-slate-700 dark:text-slate-300 font-mono font-medium">
                       {doc.documentDate}
+                    </td>
+                    <td className="px-4 py-3 text-slate-500 font-mono text-[11px]">
+                      {doc.updatedAt ? new Date(doc.updatedAt).toLocaleDateString('ms-MY') : '-'}
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-1.5">

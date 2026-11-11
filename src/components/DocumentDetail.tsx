@@ -111,6 +111,27 @@ export const DocumentDetail: React.FC<DocumentDetailProps> = ({
     onBack();
   };
 
+  // Multiple Attachments Support
+  const allAttachments = useMemo(() => {
+    if (doc.attachments && doc.attachments.length > 0) return doc.attachments;
+    if (doc.attachmentUrl) {
+      return [
+        {
+          id: 'legacy',
+          name: doc.attachmentName || 'Lampiran Dokumen',
+          url: doc.attachmentUrl,
+          type: doc.attachmentType || 'application/octet-stream',
+          sizeOriginal: doc.attachmentSizeOriginal,
+          sizeCompressed: doc.attachmentSizeCompressed,
+        },
+      ];
+    }
+    return [];
+  }, [doc]);
+
+  const [selectedAttachmentId, setSelectedAttachmentId] = useState<string>('');
+  const activeAttachment = allAttachments.find((a) => a.id === selectedAttachmentId) || allAttachments[0];
+
   // Floating highlight toolbar
   const [highlightSelection, setHighlightSelection] = useState('');
   const [commentText, setCommentText] = useState('');
@@ -459,70 +480,100 @@ export const DocumentDetail: React.FC<DocumentDetailProps> = ({
               )}
             </div>
 
-            {/* Attachment Preview (PDF, Office, Image) */}
-            {doc.attachmentUrl && (
+            {/* Attachment Preview (PDF, Office, Image) - Support Multi-File */}
+            {allAttachments.length > 0 && activeAttachment && (
               <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 space-y-4 shadow-xs">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
-                  <div className="flex items-center gap-2">
-                    {(doc.attachmentType?.includes('pdf') || doc.attachmentName?.toLowerCase().endsWith('.pdf')) ? (
-                      <span className="p-1.5 rounded-lg bg-red-100 dark:bg-red-950 text-red-600">
-                        <FileText className="w-4 h-4" />
-                      </span>
-                    ) : doc.attachmentType?.startsWith('image/') ? (
-                      <span className="p-1.5 rounded-lg bg-amber-100 dark:bg-amber-950 text-amber-600">
-                        <ImageIcon className="w-4 h-4" />
-                      </span>
-                    ) : (
-                      <span className="p-1.5 rounded-lg bg-blue-100 dark:bg-blue-950 text-blue-600">
-                        <File className="w-4 h-4" />
-                      </span>
-                    )}
-                    <div>
-                      <span className="text-xs font-semibold text-slate-900 dark:text-white block">
-                        {doc.attachmentName || 'Lampiran Dokumen Utama'}
-                      </span>
-                      <span className="text-[10px] text-slate-500 font-mono">
-                        {doc.attachmentType || 'Fail Dokumen'}
-                        {doc.attachmentSizeCompressed && ` · ${formatBytes(doc.attachmentSizeCompressed)}`}
-                      </span>
+                {/* Header & Multi-File Selector */}
+                <div>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
+                    <div className="flex items-center gap-2">
+                      {(activeAttachment.type?.includes('pdf') || activeAttachment.name.toLowerCase().endsWith('.pdf')) ? (
+                        <span className="p-1.5 rounded-lg bg-red-100 dark:bg-red-950 text-red-600">
+                          <FileText className="w-4 h-4" />
+                        </span>
+                      ) : activeAttachment.type?.startsWith('image/') ? (
+                        <span className="p-1.5 rounded-lg bg-amber-100 dark:bg-amber-950 text-amber-600">
+                          <ImageIcon className="w-4 h-4" />
+                        </span>
+                      ) : (
+                        <span className="p-1.5 rounded-lg bg-blue-100 dark:bg-blue-950 text-blue-600">
+                          <File className="w-4 h-4" />
+                        </span>
+                      )}
+                      <div>
+                        <span className="text-xs font-semibold text-slate-900 dark:text-white block">
+                          {activeAttachment.name}
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-mono">
+                          {activeAttachment.type || 'Fail Dokumen'}
+                          {activeAttachment.sizeCompressed && ` · ${formatBytes(activeAttachment.sizeCompressed)}`}
+                          {allAttachments.length > 1 && ` (Fail ${allAttachments.findIndex((a) => a.id === activeAttachment.id) + 1} dari ${allAttachments.length})`}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {activeAttachment.sizeOriginal && activeAttachment.sizeCompressed && activeAttachment.sizeOriginal > activeAttachment.sizeCompressed && (
+                        <span className="text-[11px] font-mono font-semibold text-emerald-600 dark:text-emerald-400">
+                          {formatBytes(activeAttachment.sizeOriginal)} → {formatBytes(activeAttachment.sizeCompressed)} (Jimat{' '}
+                          {Math.round(
+                            ((activeAttachment.sizeOriginal - activeAttachment.sizeCompressed) /
+                              activeAttachment.sizeOriginal) *
+                              100
+                          )}%)
+                        </span>
+                      )}
+                      <a
+                        href={activeAttachment.url}
+                        download={activeAttachment.name}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 text-white text-xs font-semibold rounded-lg shadow-xs transition-colors"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Muat Turun Fail Ini</span>
+                      </a>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {doc.attachmentSizeOriginal && doc.attachmentSizeCompressed && doc.attachmentSizeOriginal > doc.attachmentSizeCompressed && (
-                      <span className="text-[11px] font-mono font-semibold text-emerald-600 dark:text-emerald-400">
-                        {formatBytes(doc.attachmentSizeOriginal)} → {formatBytes(doc.attachmentSizeCompressed)} (Jimat{' '}
-                        {Math.round(
-                          ((doc.attachmentSizeOriginal - doc.attachmentSizeCompressed) /
-                            doc.attachmentSizeOriginal) *
-                            100
-                        )}%)
-                      </span>
-                    )}
-                    <a
-                      href={doc.attachmentUrl}
-                      download={doc.attachmentName || 'lampiran_dokumen'}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 text-white text-xs font-semibold rounded-lg shadow-xs transition-colors"
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                      <span>Muat Turun Fail</span>
-                    </a>
-                  </div>
+                  {/* Multi-file switcher tabs if more than 1 attachment */}
+                  {allAttachments.length > 1 && (
+                    <div className="pt-3 flex items-center gap-2 overflow-x-auto pb-1 text-xs">
+                      <span className="text-slate-400 text-[11px] shrink-0 font-medium">Semua Lampiran ({allAttachments.length}):</span>
+                      {allAttachments.map((att, i) => {
+                        const isSelected = att.id === activeAttachment.id;
+                        return (
+                          <button
+                            key={att.id || i}
+                            type="button"
+                            onClick={() => setSelectedAttachmentId(att.id)}
+                            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors shrink-0 ${
+                              isSelected
+                                ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-2xs'
+                                : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                            }`}
+                          >
+                            <span>#{i + 1}</span>
+                            <span className="max-w-[130px] truncate">{att.name}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
-                {(doc.attachmentType?.includes('pdf') || doc.attachmentName?.toLowerCase().endsWith('.pdf') || doc.attachmentUrl.startsWith('data:application/pdf')) ? (
+                {/* Preview active attachment */}
+                {(activeAttachment.type?.includes('pdf') || activeAttachment.name.toLowerCase().endsWith('.pdf') || activeAttachment.url.startsWith('data:application/pdf')) ? (
                   <div className="space-y-3">
                     <div className="rounded-lg overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-900 shadow-inner">
                       <iframe
-                        src={doc.attachmentUrl}
+                        src={activeAttachment.url}
                         className="w-full h-[520px] rounded-lg bg-white"
-                        title={doc.attachmentName || 'Paparan PDF'}
+                        title={activeAttachment.name}
                       />
                     </div>
                     <div className="flex items-center justify-between text-xs text-slate-500 bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-lg">
-                      <span>Paparan terus fail PDF rasmi. Sekiranya tidak muncul pada pelayar anda, klik butang muat turun.</span>
+                      <span>Paparan fail PDF rasmi. Sekiranya tidak muncul pada pelayar, klik butang muat turun fail.</span>
                       <a
-                        href={doc.attachmentUrl}
+                        href={activeAttachment.url}
                         target="_blank"
                         rel="noreferrer"
                         className="text-blue-600 hover:underline font-semibold flex items-center gap-1 shrink-0 ml-2"
@@ -532,11 +583,11 @@ export const DocumentDetail: React.FC<DocumentDetailProps> = ({
                       </a>
                     </div>
                   </div>
-                ) : doc.attachmentType?.startsWith('image/') || doc.attachmentUrl.startsWith('data:image/') ? (
+                ) : activeAttachment.type?.startsWith('image/') || activeAttachment.url.startsWith('data:image/') ? (
                   <div className="rounded-lg overflow-hidden border border-slate-200 dark:border-slate-800 max-h-96 flex items-center justify-center bg-slate-950">
                     <img
-                      src={doc.attachmentUrl}
-                      alt={doc.attachmentName || 'Lampiran Dokumen'}
+                      src={activeAttachment.url}
+                      alt={activeAttachment.name}
                       className="max-h-96 w-auto object-contain"
                     />
                   </div>
@@ -545,6 +596,14 @@ export const DocumentDetail: React.FC<DocumentDetailProps> = ({
                     <div className="text-xs text-slate-600 dark:text-slate-300">
                       Fail lampiran sedia untuk dimuat turun dan disemak pada peranti anda.
                     </div>
+                    <a
+                      href={activeAttachment.url}
+                      download={activeAttachment.name}
+                      className="inline-flex items-center gap-1 px-3 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 rounded text-xs font-semibold"
+                    >
+                      <Download className="w-3 h-3" />
+                      <span>Muat Turun</span>
+                    </a>
                   </div>
                 )}
               </div>

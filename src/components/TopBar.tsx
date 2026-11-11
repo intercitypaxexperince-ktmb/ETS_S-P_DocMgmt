@@ -4,8 +4,8 @@
  */
 
 import React from 'react';
-import { UserProfile, GoogleStorageConfig, canManageUsers } from '../types/dms';
-import { Plus, Bell, Wifi, WifiOff, Cloud, LogIn } from 'lucide-react';
+import { UserProfile, GoogleStorageConfig, canManageUsers, isSuperAdmin } from '../types/dms';
+import { Plus, Bell, Wifi, WifiOff, Cloud, LogIn, ShieldAlert } from 'lucide-react';
 
 interface TopBarProps {
   currentTab: string;
@@ -134,8 +134,26 @@ export const TopBar: React.FC<TopBarProps> = ({
                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white'
             }`}
           >
-            Analitik & Log
+            Analitik & Dashboard
           </button>
+
+          {isSuperAdmin(currentUser) && (
+            <button
+              onClick={() => onSelectTab('audit')}
+              className={`whitespace-nowrap shrink-0 transition-colors flex items-center gap-1.5 ${
+                currentTab === 'audit'
+                  ? 'text-rose-600 dark:text-rose-400 font-semibold border-b-2 border-rose-600 dark:border-rose-400 pb-1 -mb-1'
+                  : 'text-rose-600/80 hover:text-rose-700 dark:text-rose-400/80 dark:hover:text-rose-300'
+              }`}
+              title="Log Audit Aktiviti & Pengawasan Keselamatan (Akses Khas Super Admin)"
+            >
+              <ShieldAlert className="w-3.5 h-3.5" />
+              <span>Log Audit</span>
+              <span className="text-[9px] font-mono font-bold bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 px-1.5 py-0.2 rounded border border-rose-200 dark:border-rose-900">
+                SUPER
+              </span>
+            </button>
+          )}
         </nav>
 
         {/* Zone 3: 1 primary action area */}

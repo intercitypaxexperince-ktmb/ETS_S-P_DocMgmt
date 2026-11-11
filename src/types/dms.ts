@@ -179,6 +179,16 @@ export interface DmsFolder {
   isProtected?: boolean;
 }
 
+export interface DocumentAttachment {
+  id: string;
+  name: string;
+  url: string; // Base64 data URL atau pautan storan
+  type: string;
+  sizeOriginal?: number;
+  sizeCompressed?: number;
+  uploadedAt?: string;
+}
+
 export interface DmsDocument {
   id: string;
   title: string;
@@ -217,6 +227,10 @@ export interface DmsDocument {
   paperStatus: PaperStatus;
   workflowChronology: DocumentWorkflowStep[];
 
+  // Senarai Lampiran Pelbagai Fail
+  attachments?: DocumentAttachment[];
+
+  // Keserasian ke belakang untuk fail tunggal
   attachmentUrl?: string;
   attachmentName?: string;
   attachmentType?: string;
